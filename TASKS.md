@@ -75,6 +75,19 @@ M2 で分かったこと（M3 で使う）:
 - [ ] 答え合わせ: プラグインの power.log.gz がある 235 ゲーム（`Documents\HSBG-Logs`）で、作った JSON とプラグインの JSON を比べ、違いを一覧にする。
       違ってよいのは Bob's Buddy（null）、ロビーの種族、プラグインの既知の取りこぼしだけ。違いはここに理由を書く
 
+### M3.5. アイスブロックで防がれた戦闘を記録する（2026-11-20 の要望。優先度は高くない）
+M3 で記録の JSON を作れるようになってから。記録の形が変わる（`schema_version` を上げる）ので、M6（仕様の正本をこちらへ移す）とまとめて hsbg-kansousen に反映する。
+
+- 目的: アイスブロックで「防いだ」「防がれた」戦闘が分かるようにする。それで順位が上がったなら、アイスブロックの価値がとても高かったことになる（分析で大きな情報）
+- 分かっていること（docs/research.md §3.1）: アイスブロックは秘策 `TB_Bacon_Secrets_12`（装飾品 Safety Patch `BG35_MagicItem_820` などで得る）。
+  発動した戦闘では、ヒーローに PREDAMAGE は立つが META_DATA DAMAGE が出ず、HP が減らない。秘策の Entity がその戦闘で GRAVEYARD に移る。
+  236 ゲームで自分の 6 件を確認（6 件とも次のターンの HP が変わらない）
+- [ ] 要検証: 相手のアイスブロック（防がれた側）が見分けられるか。10/18 12:09 の T11 は、相手の戦闘用ヒーローに PREDAMAGE 23 で META_DATA DAMAGE が無く、
+      同じ戦闘でアイスブロックの Entity が SECRET → GRAVEYARD に移ったが、その controller は自分の PlayerID だった。戦闘中の秘策の持ち主の表し方を確かめる
+- [ ] キーの案: `turns[].combat` に「自分のアイスブロックが発動した」「相手のアイスブロックが発動した」（真偽値、または防いだダメージ）。
+      damage_dealt / damage_taken は今のまま（戦闘の結果のダメージ）。events.jsonl の `combat_end` にも。hsbg-kansousen の列と log-caveats.md
+- [ ] 答え合わせ: 上の 6 件と、発動しなかったゲームで誤って立たないこと
+
 ### M4. HDT のファイルから補う値（Meta）
 - [ ] MMR: `BgsLastGames.xml` を開始時刻で照らす（前の値と後の値。後の値が入るまで待つ）
 - [ ] ゲーム番号と再接続: `GameNetLogger.log`
