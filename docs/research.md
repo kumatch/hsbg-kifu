@@ -51,12 +51,58 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 | `Core.Game.Entities`（盤面・手札・ショップ・ゴールドなど） | `FULL_ENTITY` / `SHOW_ENTITY` / `CHANGE_ENTITY` とその下の `tag=` 行、`TAG_CHANGE` を順に当てはめる | 試作で組み立てられた（§5） |
 
 - Power.log には同じ内容が 2 回出る: `GameState.DebugPrintPower`（サーバーから受け取った時点、約 68 万行）と
-  `PowerTaskList.DebugPrintPower`（演出に合わせて処理した時点、ほぼ同数）。片方だけ読めば処理は半分で済む。
-  HDT で「同じダメージが 2 回来る」のはこの 2 系統が原因と思われる（**要検証**）。どちらを使うかは実装で決める
+  `PowerTaskList.DebugPrintPower`（演出に合わせて処理した時点、ほぼ同数）。**M2 で `GameState` を使うと決めた**:
+  HDT が持っていた Power.log の写し（`Core.Game.PowerLog`）も `GameState.` の行だけで（§5「M1 の実装での測定」）、プラグインの記録と同じ条件で比べられる。
+  サーバー側の行なので、落ちたときにも先まで残る
+- HDT で「同じダメージが 2 回来る」のは 2 系統のせいではなかった。`GameState` の中で PREDAMAGE が 1 回の攻撃につき「値 → 0 → 値 → 0」と 2 回立つ（§3.1）
 - 自分の選択肢（`DebugPrintEntityChoices`）には発見（`ChoiceType=GENERAL`）も出る。以前「取れない」とした発見の選択肢は、自分の分なら取れる見込み（**要検証**）
 - プレイヤー名（BattleTag）は Power.log に出る。照合に使うだけで、記録の JSON には書かない
 - 1 行ずつ処理するので、プラグインの 100 ms ごとの差分検出より正確になる（HDT が書き換え中の状態を読む問題や、終わり際の変化の取りこぼしが無くなる）。
   同じ入力から同じ結果が出るので、ゲーム中に作った記録と、後で中継ログから作り直した記録が一致する
+
+### 3.1 M2 の実装で分かったこと（2026-11-20、`src/HsbgKifu.Core/Parse/`）
+
+**タグの名前と番号**
+- `tag=` の名前は 1 ゲームで約 320 種類。名前のあるタグは名前で、無いもの（3533、2022 など約 400 種類）は番号で出る。
+  値が名前で出るのは `ZONE`・`CARDTYPE`・`CARDRACE`・`CLASS`・`FACTION`・`MULLIGAN_STATE`・`STEP`・`NEXT_STEP`・`PLAYSTATE`・`RARITY`・`STATE` だけ
+- 名前 → 番号は HearthSim/HearthDb の `Enums.cs`（MIT。v37.0.0、2026-10-13）を `src/HsbgKifu.Core/ThirdParty/HearthDb/` に写して使う。
+  公式の NuGet パッケージは無い（`dotnet package search HearthDb` は第三者の古いものだけ）。22 ゲームに出た名前と値はすべて載っていた
+- **Hearthstone の更新で名前が増えたら**: パーサは知らない名前を数えて警告する（`UnknownTagCount`。その行は当てはめない）。
+  HearthDb の新しい `Enums.cs` を写し直し、ファイルの先頭のコミットを書き換え、THIRD_PARTY_NOTICES.md を確かめる
+
+**行の形**
+- 行の種類はインデントで見分けられない（ブロックの中では TAG_CHANGE も深くインデントされる）。先頭の空白を除いた中身で見分ける
+- TAG_CHANGE の末尾に ` DEF CHANGE` が付くことがある。Entity の指し方は 4 通り: 番号 / `GameEntity` / `[entityName=... id=N zone=...]`
+  （名前の中に `UNKNOWN ENTITY [cardType=INVALID]` のような角かっこが入る）/ プレイヤー名
+- **プレイヤー名**: 自分は常に DebugPrintGame の名前で指される。相手役のプレイヤー（ソロでは Bob 役。`BACON_DUMMY_PLAYER=1`）は、
+  その時の戦闘相手の BattleTag などで指され、名前は毎回変わる（1 ゲームで 9 通り）。DebugPrintGame に無い名前は Bob 役とみなす。
+  CREATE_GAME の下の `Player EntityID=5 PlayerID=2 GameAccountId=[hi=... lo=...]` にはアカウント ID が出る（読まない）
+- **自分の判定**: Bob 役でない方のプレイヤー（CREATE_GAME の直後に分かる）。ヒーロー選択（`ChoiceType=MULLIGAN` の `Player=`）とも全ゲームで一致した。
+  再接続ではヒーロー選択が来ないが、Bob 役の判定で分かる（10/17 のゲームで確認）
+- ヒーロー選択で選んだものは `GameState.DebugPrintEntitiesChosen() - ... Entities[0]=[... id=N ...]` に出る
+
+**ダメージ**
+- 1 回の攻撃で PREDAMAGE が「値 → 0 → 値 → 0」と 2 回立ち、実際に入ったところで `META_DATA - Meta=DAMAGE Data=<量> InfoCount=1` と
+  `Info[0] = <受けた Entity>` が 1 回出る。パーサは前者を `OnPredamage`、後者を `OnDamage` として知らせる
+- PREDAMAGE が立っても META_DATA DAMAGE が出ない場合がある（236 ゲームで 7 ターン分）:
+  - 自分のヒーロー（6 件）: どれも次のターンの HP が変わっていない。**アイスブロック**（装飾品 Safety Patch `BG35_MagicItem_820` で得る秘策
+    `TB_Bacon_Secrets_12`。HP が 0 になるダメージを 1 度だけ無効にして消える）が、6 件ともそのターンの戦闘で墓地（GRAVEYARD）に移っていた
+  - 相手のヒーロー（10/18 12:09 の T11）: 戦闘用のヒーローに PREDAMAGE 23、ダメージは相手のリーダーボード側のヒーロー（SETASIDE）の `DAMAGE` に直接書かれた
+- **ショップ中のダメージ**: HP で払う購入（ミニオン・酒場の呪文）と、プレイすると HP が減るミニオンがある。ソウル・リワインダーのように
+  ショップ中のダメージを巻き戻すミニオンと組み合わせることが多い（巻き戻せば HP は戻る）。戦闘のダメージとは別物で、
+  戦闘開始（3533 / 2022 の 1 → 0）から次のショップの始まり（奇数の TURN）の間だけを数えれば混ざらない（混ぜると 22 ゲーム中 8 ゲームで違いが出た）
+- **戦闘のダメージの定義（2026-11-20、ユーザーの説明による）**: damage_dealt / damage_taken は「戦闘の結果として生じたダメージ」。
+  アイスブロックで無効になって HP が減らなくても、戦闘の結果のダメージ（例: 15）を記録する。これはプラグインの数え方（PREDAMAGE から。HDT の OnEntityWillTakeDamage）と同じ。
+  PREDAMAGE の 2 回目（同じ Entity・同じ値で、間に META_DATA DAMAGE が無い）は数えない。META_DATA DAMAGE が無かった戦闘は「防がれた（または別の Entity に書かれた）」と見分けられる
+
+**プラグインの記録との一致（`kifu-dev verify-parse`）**
+- 比べた項目: ヒーロー、順位、ターン数、各ターンのティア（ショップの終わり）・HP とアーマー（ショップの始まり）・与えた / 受けたダメージ
+  （上の定義。戦闘開始から次のショップまでの PREDAMAGE）
+- 中継ログ 22 ゲーム（1,421 項目）: 違い 0 件（アイスブロックの戦闘 2 件を含む）
+- プラグインの power.log.gz 236 ゲーム（14,949 項目）: 違いは 1 ゲーム（10/11 13:43）の 3 項目だけ。
+  その power.log.gz はゲームの途中（13:59:12）で切れていて終わりの行が無い（プラグインの写しの欠け。中継ログでは起きない）
+- 再接続（10/17 17:45）: 2 回目の CREATE_GAME を「途中から（TURN 23）」と判定し、473 Entity を当てはめ、全項目が一致
+- 名前で指されて決められなかった行: 0。知らないタグ名: 0
 
 ## 4. HDT に頼っていた値（確認済み）
 
@@ -111,7 +157,6 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 
 ## 7. 要検証の一覧
 
-- `GameState` と `PowerTaskList` のどちらを使うか（重複・落ちたときにどこまで残るか・遅れ）
 - Hearthstone がログを書くまでの遅れ（HDT がほぼ即時に動いているので問題ない見込み）
 - ログフォルダを何回分残すか。容量の上限での切り替えがあるか（`Power_old.log` になるのは終了時と確認済み、§2）
 - `BgsLastGames.xml` に MMR が入るまでの時間。11/30 以降も書かれ続けるか
