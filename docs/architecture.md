@@ -23,12 +23,37 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 | 層 | 役目 | 出どころ |
 |---|---|---|
 | Watch | ログフォルダの監視、Power.log を後ろから読み続ける、ゲームごとの切り出しと中継ログ、起動時の取りこぼしの回収 | 新規 |
-| Parse | Power.log の行 → Entity の状態（`GameState` 相当）と出来事（ゲーム開始・ヒーロー選択・ショップ開始・戦闘開始・ダメージ・ゲーム終了・再接続） | 新規。HDT の `Capture/` が受け持っていた範囲 |
+| Parse | Power.log の行 → Entity の状態（`GameState` 相当）と出来事（ゲーム開始・ヒーロー選択・ショップ開始・戦闘開始・ダメージ・ゲーム終了・再接続） | 新規（M2）。HDT が受け持っていた範囲。下の「状態と出来事」 |
 | Capture | 出来事ごとに状態からスナップショットを取る（盤面・手札・ショップ・ロビー・強化・神） | プラグインの `Capture/GameSession` などを、HDT の型を使わない形に書き直す |
 | Logic | 純粋ロジック | プラグインの `Logic/` をそのまま移す |
 | Model / Output | DTO と書き出し | プラグインの `Model/`・`Output/` を移す。Newtonsoft.Json は NuGet で同梱する（HDT 同梱の版に頼れなくなる） |
 | Meta | MMR（`BgsLastGames.xml`）、ゲーム番号（`GameNetLogger.log`）、カードのデータ（CardDefs） | 新規 |
 | App | タスクトレイ、設定画面、ログ出力、自動起動 | プラグインの `UI/`・`Config/`・`Diagnostics/` を移す |
+
+## 状態と出来事（Parse。M2 で実装）
+
+- `PowerLogParser` が `GameState.DebugPrintPower` / `DebugPrintGame` / `DebugPrintEntityChoices` の行を順に当てはめ、`PowerGame`（1 ゲームの状態）を組み立てる。
+  `PowerTaskList.` の行は読まない（docs/research.md §3）
+- `PowerGame` / `Entity` の読み方は HDT の `GameV2` / `Entity` に寄せてある（`Entities`、`PlayerEntity`、`GameEntity`、`TurnNumber`（= GetTurnNumber）、
+  `GetTag(GameTag)`、`IsMinion`、`IsInPlay`、`IsControlledBy`、`Health`（HEALTH − DAMAGE）など）。タグは HearthDb の `GameTag`（ThirdParty/HearthDb）。
+  M3 でプラグインの `Capture/` を、HDT の代わりにこれを読む形で移す
+- 出来事（`PowerGameListener`）は行を当てはめた**後**に呼ぶ。受け手は今の状態を読める
+
+| 出来事 | 元の行 | HDT の対応 |
+|---|---|---|
+| `OnGameCreated` / `OnGameSetupDone` | `CREATE_GAME` / その下の Entity を当てはめ終えたとき | OnGameStart |
+| `OnLocalPlayerKnown` | Bob 役（`BACON_DUMMY_PLAYER`）でない方、またはヒーロー選択の `Player=` | Player.Id |
+| `OnTurnChanged` | GameEntity の TURN（奇数 = ショップの始まり、偶数 = ショップの終わり / 戦闘のターン） | OnTurnStart(Player / Opponent) |
+| `OnCombatSetupEnded` | タグ 3533 / 2022 の 1 → 0 | IsBattlegroundsCombatPhase = true |
+| `OnPredamage` / `OnDamage` | `PREDAMAGE` > 0 / `META_DATA - Meta=DAMAGE` と `Info[i]` | OnEntityWillTakeDamage / （無し） |
+| `OnChoices` | `DebugPrintEntityChoices`（ヒーロー選択は MULLIGAN） | BattlegroundsHeroPickState |
+| `OnEntityUpdated` / `OnTagChanged` | FULL / SHOW / CHANGE_ENTITY と、その下の `tag=` / TAG_CHANGE / HIDE_ENTITY | Entities の変化 |
+| `OnGameEnded` | GameEntity の STATE = COMPLETE | OnGameEnd |
+
+- 再接続: CREATE_GAME の下の GameEntity の TURN が 0 より大きければ `StartedMidGame`。その下にその時点の全 Entity が来る。作られたときのタグでは TURN などの出来事を出さない
+- プレイヤー名（BattleTag）は名前の解決にだけ使い、`PowerGame` の外に出さない（`internal`）
+- 受け手の例外は捕まえて動作記録に書き、読み取りは続ける
+- `SliceReplay` は中継ログ（.power.log.gz）を読んでパーサに流す（M3 の作り直しコマンドの土台）
 
 ## Power.log の読み方
 
