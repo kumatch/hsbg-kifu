@@ -1,4 +1,4 @@
-# CLAUDE.md — hsbg-kansousen-recorder
+# CLAUDE.md — hsbg-kifu
 
 Claude Code がセッション開始時に読む、このリポジトリの規約です。詳細は `docs/`。ここには「毎回守ること」だけを書きます。
 
@@ -6,7 +6,7 @@ Claude Code がセッション開始時に読む、このリポジトリの規�
 
 Hearthstone Battlegrounds の 1 ゲームごとの記録を、Hearthstone の Power.log から作ってローカルの JSON に保存する常駐アプリ。
 HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugin-hsbg-kansousen`）の後継で、HDT が 2026-11-30 にプラグインを止めるために作る。
-記録は分析ツール hsbg-kansousen（`..\hsbg-kansousen`）が読む。記録の形はプラグインの `docs/log-schema.md` を引き継ぐ（TASKS.md M6 まではプラグイン側が正本）。
+記録（棋譜）は分析ツール hsbg-kansousen（`..\hsbg-kansousen`）などが読む。依存の向きは hsbg-kifu → 棋譜 → hsbg-kansousen で、このリポジトリは hsbg-kansousen に依存しない。記録の形はプラグインの `docs/log-schema.md` を引き継ぐ（TASKS.md M6 まではプラグイン側が正本）。
 
 ## 必ず読むドキュメント
 
@@ -25,7 +25,7 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 
 ## コーディング規約
 
-- 名前空間 `HsbgKansousen.Recorder`（仮）。Power.log の解析・純粋ロジックは UI から分け、xUnit でテストする
+- 名前空間 `HsbgKifu`。Power.log の解析・純粋ロジックは UI から分け、xUnit でテストする
 - 例外は捕捉してログに書く。記録アプリが落ちても Hearthstone と HDT に影響させない
 - Hearthstone と HDT のファイルは共有モードで開いて読むだけ。書き換えない
 - ファイル書き込みはアトミックに（一時ファイル → 置き換え）
