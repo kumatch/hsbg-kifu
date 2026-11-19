@@ -12,7 +12,8 @@
 
 - 2026-11-19: リポジトリを作った。調査（docs/research.md）、設計の案（docs/architecture.md）、性能の試作（`spike/powerlog-bench/`）、
   M0 の退避スクリプト（`scripts/backup-powerlogs.ps1`）
-- 2026-11-20: M1（Power.log を読み続けてゲームごとの中継ログに切り出す）。実機確認を待って M2 へ
+- 2026-11-20: M1（Power.log を読み続けてゲームごとの中継ログに切り出す。実機確認済み）
+- 2026-11-20: M2（Power.log から状態と出来事を作る）。プラグインの記録 236 ゲームと答え合わせ済み。次は M3
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
@@ -50,10 +51,21 @@
 M3 で決めること: 中継ログ（`.slices\`）と記録の JSON の置き方。hsbg-kansousen の `powerlog.power_log_for` は JSON と同じ名前の `.power.log.gz` を探す
 
 ### M2. Power.log から状態と出来事を作る（Parse）
-- [ ] Entity の状態の組み立て（`FULL_ENTITY` / `SHOW_ENTITY` / `CHANGE_ENTITY` / `TAG_CHANGE`、プレイヤー名 → `PlayerID`）
-- [ ] 自分のプレイヤーの判定（ヒーロー選択の `ChoiceType=MULLIGAN` の `Player=`）
-- [ ] 出来事: ゲーム開始・ヒーロー選択・ショップ開始・戦闘開始（`3533` / `2022`）・ダメージ（`PREDAMAGE`）・ゲーム終了・再接続
-- [ ] `GameState` と `PowerTaskList` のどちらを使うか決める（docs/research.md §7）
+- [x] Entity の状態の組み立て（`Parse/PowerLogParser`・`PowerGame`・`Entity`。`FULL_ENTITY` / `SHOW_ENTITY` / `CHANGE_ENTITY` / `HIDE_ENTITY` / `TAG_CHANGE`、
+      プレイヤー名 → `PlayerID`）。タグの名前と番号は HearthDb の `Enums.cs`（MIT）を写した（`ThirdParty/HearthDb/`、THIRD_PARTY_NOTICES.md）
+- [x] 自分のプレイヤーの判定（Bob 役 = `BACON_DUMMY_PLAYER` でない方。ヒーロー選択の `ChoiceType=MULLIGAN` の `Player=` とも一致。再接続でも分かる）
+- [x] 出来事（`PowerGameListener`）: ゲーム開始・ヒーロー選択（選択肢）・ターン（ショップの始まり / 終わり）・戦闘開始（`3533` / `2022`）・
+      ダメージ（`PREDAMAGE` と `META_DATA DAMAGE`）・ゲーム終了・再接続（`StartedMidGame`）
+- [x] `GameState` と `PowerTaskList` のどちらを使うか: `GameState`（HDT と同じ。docs/research.md §3）
+- [x] テスト 8 件（`PowerLogParserTests`、合計 31 件）。実データの答え合わせ `kifu-dev verify-parse`（`tools/HsbgKifu.DevTools`）:
+      中継ログ 22 ゲーム・プラグインの power.log.gz 236 ゲームで、ヒーロー・順位・ターン数・各ターンのティア / HP / アーマー / ダメージが一致
+      （違いは、プラグインの power.log.gz が途中で切れていた 1 ゲームだけ。docs/research.md §3.1）
+
+M2 で分かったこと（M3 で使う）:
+- damage_dealt / damage_taken は「戦闘の結果として生じたダメージ」= PREDAMAGE（2 回目を除く）を、戦闘開始から次のショップの始まりまで数える。
+  アイスブロックで無効になっても数える（プラグインと同じ。記録の形は変えない）。ショップ中のダメージ（HP で払う購入・プレイ）は含めない
+- 記録の候補（今は記録しない。記録するなら schema_version を上げる）: 戦闘のダメージが防がれたこと（アイスブロック。META_DATA DAMAGE が無い戦闘で見分けられる）、
+  ショップ中に HP で払ったダメージとその巻き戻し（ソウル・リワインダーなど）
 
 ### M3. 記録を作る（Capture / Logic / Model / Output）と答え合わせ
 - [ ] プラグインの `Logic/`・`Model/`・`Output/` とテストを移す（net472 → net8.0、Newtonsoft.Json は NuGet）
