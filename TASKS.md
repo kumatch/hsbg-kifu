@@ -10,14 +10,21 @@
 
 ## 現在の状態
 
-- 2026-11-19: リポジトリを作った。調査（docs/research.md）と設計の案（docs/architecture.md）、性能の試作（`spike/powerlog-bench/`）だけ。まだコミットしていない
+- 2026-11-19: リポジトリを作った。調査（docs/research.md）、設計の案（docs/architecture.md）、性能の試作（`spike/powerlog-bench/`）、
+  M0 の退避スクリプト（`scripts/backup-powerlogs.ps1`）。次は M1
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
 
 ### M0. 当面の取りこぼし対策（11/30 までに）
-- [ ] 記録アプリができるまでの間、Hearthstone の `Logs\Hearthstone_*\Power*.log` を gzip して退避するスクリプト
-      （`scripts/`。ログフォルダは 6 起動分ほどしか残らない。退避したファイルは後で M3 の作り直しコマンドに通す）
+- [x] 記録アプリができるまでの間、Hearthstone の `Logs\Hearthstone_*\Power*.log` を gzip して退避するスクリプト
+      （`scripts/backup-powerlogs.ps1`。`GameNetLogger*.log` も退避する。既定の退避先は `Documents\HSBG-PowerLogs`。
+      ログフォルダは 6 起動分ほどしか残らない。退避したファイルは後で M3 の作り直しコマンドに通す）。
+      2026-11-19 に確認: 6 起動分 1.47 GB → 72 MB（約 10 秒）、展開した中身のハッシュが元と一致、2 回目は全件を飛ばす、
+      試験用のフォルダで「起動中の Power.log → 追記 → `_old` に名前が変わる」を再現して古い写しが置き換わる。pwsh と powershell.exe の両方で動く
+- [x] 実機確認: Hearthstone の起動中にスクリプトを実行しても、Hearthstone に影響しないこと。
+      その後の終了で Power.log が Power_old.log になり、次の実行で置き換わること
+      （2026-11-19 23:06 の起動で 1 ゲーム。起動中の実行で Hearthstone に影響なし。終了後の実行で `Power_old.log.gz` だけが残った）
 
 ### M1. 読み続けて切り出す（Watch）
 - [ ] ソリューションの骨組み（.NET 8。`src/` に記録アプリとライブラリ、`tests/` に xUnit）。検証コマンドを決めて CLAUDE.md に書く

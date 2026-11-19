@@ -10,6 +10,20 @@ HDT とは別に起動して、Hearthstone のログファイルを読むだけ�
 - 設計（案）: [docs/architecture.md](docs/architecture.md)
 - 進み具合: [TASKS.md](TASKS.md)
 
+## 記録アプリができるまでの退避
+
+Hearthstone のログフォルダ（`<Hearthstone のフォルダ>\Logs\Hearthstone_<日時>\`）は 6 起動分ほどで消えます。
+記録アプリができるまでは、遊んだ後に次のスクリプトで Power.log を退避しておくと、後で記録を作れます。
+
+```powershell
+.\scripts\backup-powerlogs.ps1                                 # 退避先: Documents\HSBG-PowerLogs
+.\scripts\backup-powerlogs.ps1 -Destination D:\HSBG-PowerLogs  # 退避先を変える
+```
+
+- 写すのは `Power*.log` と `GameNetLogger*.log` を gzip にしたものだけです。Hearthstone のファイルは変えません。一度写したファイルは、変わっていなければ飛ばします
+- 退避したファイルには、同じロビーの全員の BattleTag が入ります。人に渡さないでください
+- 実行ポリシーで止まるときは `powershell -ExecutionPolicy Bypass -File .\scripts\backup-powerlogs.ps1` で実行します
+
 ## ライセンス
 
 MIT（[LICENSE](LICENSE)）

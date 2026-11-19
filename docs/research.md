@@ -23,7 +23,9 @@ HDT 1.59.x、プラグイン 0.14.0 の記録 754 ゲーム（うち power.log.g
   記録アプリは log.config を**読むだけ**にする（足りないときは利用者に知らせる。書き換えるかは要検討）
 - 置き場は `<Hearthstone のフォルダ>\Logs\Hearthstone_YYYY_MM_DD_HH_MM_SS\`（起動時刻ごとのフォルダ）。
   Hearthstone のフォルダは HDT の `%APPDATA%\HearthstoneDeckTracker\config.xml` の `HearthstoneDirectory` で分かる
-- 起動中は `Power.log` に追記され、終わったフォルダでは `Power_old.log` になっている（名前が変わる時点が終了時か次の起動時かは**要検証**）
+- 起動中は `Power.log` に追記され、**Hearthstone の終了時に `Power_old.log` に名前が変わる**
+  （2026-11-19 に確認: 23:06 の起動を終了した後、次の起動の前にフォルダの Power.log が Power_old.log になっていた）。
+  `GameNetLogger.log` は名前が変わらないこともある（同じ起動で `GameNetLogger.log` のまま）
 - 残っているフォルダは直近の 6 起動分だった（2026-11-19 時点で 11/10〜11/15 の 6 フォルダ。何回分残すかの規則は**要検証**）
 - 1 起動分の Power.log は 170〜340 MB。1 ゲームは 28〜124 MB（gzip で 3〜5 MB）
 - **欠落の確認**: 残っている 6 起動分すべてで、`Power_old.log` の `CREATE_GAME` の数がプラグインの記録数と一致した（5/6/4/7/5/4、計 31 ゲーム）。
@@ -91,7 +93,7 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 
 - `GameState` と `PowerTaskList` のどちらを使うか（重複・落ちたときにどこまで残るか・遅れ）
 - Hearthstone がログを書くまでの遅れ（HDT がほぼ即時に動いているので問題ない見込み）
-- `Power.log` が `Power_old.log` になる時点。ログフォルダを何回分残すか。容量の上限での切り替えがあるか
+- ログフォルダを何回分残すか。容量の上限での切り替えがあるか（`Power_old.log` になるのは終了時と確認済み、§2）
 - `BgsLastGames.xml` に MMR が入るまでの時間。11/30 以降も書かれ続けるか
 - ロビーの種族を推定したときの精度
 - 自分の発見の選択肢が取れるか（記録するかは別に決める）
