@@ -11,7 +11,8 @@
 ## 現在の状態
 
 - 2026-11-19: リポジトリを作った。調査（docs/research.md）、設計の案（docs/architecture.md）、性能の試作（`spike/powerlog-bench/`）、
-  M0 の退避スクリプト（`scripts/backup-powerlogs.ps1`）。次は M1
+  M0 の退避スクリプト（`scripts/backup-powerlogs.ps1`）
+- 2026-11-20: M1（Power.log を読み続けてゲームごとの中継ログに切り出す）。実機確認を待って M2 へ
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
@@ -27,12 +28,26 @@
       （2026-11-19 23:06 の起動で 1 ゲーム。起動中の実行で Hearthstone に影響なし。終了後の実行で `Power_old.log.gz` だけが残った）
 
 ### M1. 読み続けて切り出す（Watch）
-- [ ] ソリューションの骨組み（.NET 8。`src/` に記録アプリとライブラリ、`tests/` に xUnit）。検証コマンドを決めて CLAUDE.md に書く
-- [ ] Power.log を後ろから読み続ける（共有モード、書きかけの行、名前の変更・差し替え・新しいフォルダへの移動）
-- [ ] `CREATE_GAME` / `STATE=COMPLETE` でゲームごとに切り出し、中継ログ（平文で追記 → 終わったら gzip）と付帯情報
-      （日付つきの開始時刻、ゲーム番号、Hearthstone のビルド番号）を書く
-- [ ] 起動時に残っているログフォルダを読み、まだ切り出していないゲームを回収する（同じゲームの判定: 開始時刻 + ゲーム番号）
-- [ ] テスト用の短い Power.log（匿名化したもの。プラグインの `scripts/anonymize_log.py` を参考にする）で、切り出し・再接続・途中で切れたログを試す
+- [x] ソリューションの骨組み（`HsbgKifu.sln`: `src/HsbgKifu.Core`（ライブラリ）、`src/HsbgKifu.Cli`（`hsbg-kifu.exe`、開発・確認用のコマンド）、
+      `tests/HsbgKifu.Tests`（xUnit）。.NET 8、警告はエラー扱い）。検証コマンドは CLAUDE.md
+- [x] Power.log を後ろから読み続ける（`Watch/LogTailer`: 共有モード、書きかけの行、名前の変更・短くなったとき。`Watch/KifuWatcher`: 新しいフォルダへの移動、
+      起動直後で Power.log がまだ無いフォルダを待つ）
+- [x] ゲームごとに切り出し（`Watch/GameSlicer`）、中継ログ（平文で追記 → 終わったら gzip）と付帯情報 `.slice.json`
+      （日付つきの開始時刻、ゲーム番号と再接続かどうか、ビルド番号、complete / incomplete）を書く（`Watch/SliceStore`）。
+      境目と置き場は docs/architecture.md「中継ログ」
+- [x] 起動時に残っているログフォルダを読み、まだ切り出していないゲームを回収する（同じゲームの判定: ログフォルダ名 + CREATE_GAME の時刻）。
+      `hsbg-kifu slice --logs <dir>` で M0 の退避先（.gz）も取り込める
+- [x] テスト: 実データの代わりに、テストの中で組み立てた短いログ（`tests/HsbgKifu.Tests/TestLogs.cs`）で、切り出し・BG 以外・途中で切れたログ・
+      サーバー側だけの COMPLETE・書きかけからの再開・名前の変更・新しいフォルダ・Hearthstone が落ちたとき・退避した .gz を試す（23 件）
+- [x] 実データでの確認（2026-11-20、docs/research.md §5「M1 の実装での測定」）: 今の Logs（5 起動分）から 21 ゲーム、M0 の退避先から残りの 11 ゲーム
+      （重複なし）でプラグインの記録 31 件 + 11/19 の 1 件と一致。中継ログの `GameState.` の行は、プラグインの power.log.gz と行末の空白を除いて同じ。
+      実際の Power_old.log を追記しながら `watch` で追った結果と、起動直後に読み直した結果が、まとめて切り出した結果とバイト単位で一致
+- [x] 実機確認: `hsbg-kifu watch` を起動したまま Hearthstone で 1 ゲーム遊び、終了する（2026-11-20 00:14 のゲーム、ゲーム番号 2017）。
+      Hearthstone の動作に問題なし。起動時に残っていた 5 フォルダから 21 ゲームを回収し、起動した Hearthstone の Power.log ができて 0.1 秒以内に後を追い始め、
+      画面側の COMPLETE（00:41:35.28）から 0.5 秒以内に complete で閉じた（367,949 行）。終了後の Power_old.log からまとめて切り出した結果とバイト単位で一致、
+      `GameState.` の行はプラグインの power.log.gz（183,423 行）と行末の空白を除いて同じ
+
+M3 で決めること: 中継ログ（`.slices\`）と記録の JSON の置き方。hsbg-kansousen の `powerlog.power_log_for` は JSON と同じ名前の `.power.log.gz` を探す
 
 ### M2. Power.log から状態と出来事を作る（Parse）
 - [ ] Entity の状態の組み立て（`FULL_ENTITY` / `SHOW_ENTITY` / `CHANGE_ENTITY` / `TAG_CHANGE`、プレイヤー名 → `PlayerID`）
