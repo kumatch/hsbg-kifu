@@ -35,8 +35,24 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 
 ## 検証コマンド
 
-- M1 でソリューションを作ったら決めて、ここに書く（`dotnet build` + `dotnet test`、警告ゼロ）
+- `dotnet build HsbgKifu.sln -c Release; dotnet test HsbgKifu.sln -c Release --no-build`（警告ゼロ。警告はエラー扱い）
+- 公開前: `python ..\hdt-plugin-hsbg-kansousen\scripts\check_private.py README.md CLAUDE.md TASKS.md docs spike scripts src tests`（個人の情報が入っていないか）
+- 実データで試すときは、出力先をスクラッチ（一時フォルダ）にし、終わったら消す（中継ログには BattleTag が入る）
 - 実機確認は人間に依頼する。手順を PowerShell / GUI 操作として書いて止まる
+
+## 構成
+
+```
+HsbgKifu.sln, Directory.Build.props（共通の設定と <Version>）
+src/HsbgKifu.Core/
+├── Watch/        # Power.log の監視と切り出し: LineSplitter, LogTailer, PowerLogLine, SessionClock, LogSessions, GameNetLog,
+│                 #   GameSlicer, SliceStore（中継ログと .slice.json）, KifuWatcher（常駐の本体）, BatchSlicer
+└── Diagnostics/  # IKifuLog
+src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice）。常駐アプリ（M5）ができるまでの確認用
+tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs で短いログを組み立てる
+scripts/          # backup-powerlogs.ps1（M0）
+spike/            # 試作（製品のコードではない）
+```
 
 ## 作業の進め方
 

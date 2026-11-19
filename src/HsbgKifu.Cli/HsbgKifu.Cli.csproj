@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>HsbgKifu.Cli</RootNamespace>
+    <AssemblyName>hsbg-kifu</AssemblyName>
+    <!-- 読み捨てる行の文字列が多いので、並行 GC を止めて早めに回収する（docs/research.md §5: 起動直後の読み直しで最大 163 MB → 131 MB） -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HsbgKifu.Core\HsbgKifu.Core.csproj" />
+  </ItemGroup>
+</Project>
