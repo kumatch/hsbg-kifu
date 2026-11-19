@@ -36,8 +36,12 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 ## 検証コマンド
 
 - `dotnet build HsbgKifu.sln -c Release; dotnet test HsbgKifu.sln -c Release --no-build`（警告ゼロ。警告はエラー扱い）
-- 公開前: `python ..\hdt-plugin-hsbg-kansousen\scripts\check_private.py README.md CLAUDE.md TASKS.md docs spike scripts src tests`（個人の情報が入っていないか）
-- 実データで試すときは、出力先をスクラッチ（一時フォルダ）にし、終わったら消す（中継ログには BattleTag が入る）
+- 公開前: `python ..\hdt-plugin-hsbg-kansousen\scripts\check_private.py README.md CLAUDE.md TASKS.md docs spike scripts src tests tools`（個人の情報が入っていないか）
+- パーサを変えたら、実データで答え合わせをする（どちらも違いの一覧が出る。今の結果は docs/research.md §3.1）:
+  `.\tools\HsbgKifu.DevTools\bin\Release\net8.0\kifu-dev.exe verify-parse --slices <中継ログの .slices> --plugin "$env:USERPROFILE\Documents\HSBG-Logs"`、
+  `--slices plugin` ならプラグインの power.log.gz（236 ゲーム）で比べる
+- 実データで試すときは、出力先をスクラッチ（一時フォルダ）にし、終わったら消す（中継ログには BattleTag が入る）。
+  実データの行を表示するときは BattleTag を伏せる（`Entity=<名前>`・`PlayerName=`・`Player=`）
 - 実機確認は人間に依頼する。手順を PowerShell / GUI 操作として書いて止まる
 
 ## 構成
@@ -47,9 +51,12 @@ HsbgKifu.sln, Directory.Build.props（共通の設定と <Version>）
 src/HsbgKifu.Core/
 ├── Watch/        # Power.log の監視と切り出し: LineSplitter, LogTailer, PowerLogLine, SessionClock, LogSessions, GameNetLog,
 │                 #   GameSlicer, SliceStore（中継ログと .slice.json）, KifuWatcher（常駐の本体）, BatchSlicer
+├── Parse/        # Power.log → 状態と出来事: PowerLogParser, PowerGame, Entity, PowerGameListener, TagNames, SliceReplay
+├── ThirdParty/HearthDb/Enums.cs  # HearthDb の列挙型の写し（MIT。THIRD_PARTY_NOTICES.md。手で直さない）
 └── Diagnostics/  # IKifuLog
 src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice）。常駐アプリ（M5）ができるまでの確認用
-tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs で短いログを組み立てる
+tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs などで短いログを組み立てる
+tools/HsbgKifu.DevTools/  # kifu-dev.exe（配布しない）: verify-parse（プラグインの記録との答え合わせ）
 scripts/          # backup-powerlogs.ps1（M0）
 spike/            # 試作（製品のコードではない）
 ```
@@ -65,4 +72,4 @@ spike/            # 試作（製品のコードではない）
 - 外部サーバへの送信（ローカルのファイルにだけ書く）
 - BattleTag・プレイヤー名・アカウント ID（`BgsLastGames.xml` の `Player`）・接続先アドレス・`spectateKey` を記録の JSON に書くこと
   （中継ログ = Power.log の写しにはロビー全員の BattleTag が入る。人に渡さない）
-- Hearthstone や HDT のバイナリ・ソースをリポジトリ・配布物に含めること
+- Hearthstone や HDT のバイナリ・ソースをリポジトリ・配布物に含めること（HearthDb は HDT とは別の MIT のプロジェクトで、列挙型だけを写している）
