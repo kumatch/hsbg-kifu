@@ -80,6 +80,16 @@ public sealed class SliceStore
 
     public IEnumerable<SliceMeta> All => _index.Values.Select(v => v.Meta);
 
+    /// <summary>1 ゲーム分の中継ログを書き終えた（gzip にした）。引数は付帯情報と .power.log.gz のパス。記録の JSON を作るのに使う。</summary>
+    public event Action<SliceMeta, string>? SliceFinished;
+
+    /// <summary>書き終えた中継ログ（付帯情報と .power.log.gz のパス）。作り直しのコマンドが使う。</summary>
+    public IEnumerable<(SliceMeta Meta, string Gz)> Finished =>
+        _index.Values.Where(v => v.Meta.Status != SliceMeta.StatusRecording)
+            .Select(v => (v.Meta, GzPath(v.MetaPath)))
+            .Where(x => File.Exists(x.Item2))
+            .OrderBy(x => x.Meta.StartTime);
+
     /// <summary>書き終えた（gzip がある）ゲームなら true。書いている途中で止まったものは false（切り出し直す）。</summary>
     public bool IsDone(string key) =>
         _index.TryGetValue(key, out var e) && e.Meta.Status != SliceMeta.StatusRecording && File.Exists(GzPath(e.MetaPath));
@@ -119,6 +129,7 @@ public sealed class SliceStore
         File.Move(tmp, gz, overwrite: true);
         WriteMeta(basePath + ".slice.json", meta);
         File.Delete(plain);
+        SliceFinished?.Invoke(meta, gz);
     }
 
     internal void Abandon(string basePath, SliceMeta meta)

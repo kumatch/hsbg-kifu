@@ -52,11 +52,16 @@ src/HsbgKifu.Core/
 ├── Watch/        # Power.log の監視と切り出し: LineSplitter, LogTailer, PowerLogLine, SessionClock, LogSessions, GameNetLog,
 │                 #   GameSlicer, SliceStore（中継ログと .slice.json）, KifuWatcher（常駐の本体）, BatchSlicer
 ├── Parse/        # Power.log → 状態と出来事: PowerLogParser, PowerGame, Entity, PowerGameListener, TagNames, SliceReplay
-├── ThirdParty/HearthDb/Enums.cs  # HearthDb の列挙型の写し（MIT。THIRD_PARTY_NOTICES.md。手で直さない）
+├── Capture/      # 状態と出来事 → 記録: GameRecorder（プラグインの GameSession）, ShopBlockActions, Snapshots, KifuCards, PlayerBuffs, DeityReader,
+│                 #   KifuBuilder / KifuOutput（中継ログ → JSON・events.jsonl・power.log.gz）, KifuWriterService（常駐・作り直しから使う。二重記録の防止）
+├── Cards/        # CardDb（HDT の CardDefs.base.xml）
+├── Logic/ Model/ Output/  # プラグインから移した純粋ロジック・DTO・書き出し（HDT 非依存。プラグインのテストも tests/ に移した）
+├── ThirdParty/HearthDb/   # HearthDb の Enums.cs / Utils.cs の写し（MIT。THIRD_PARTY_NOTICES.md。手で直さない）
 └── Diagnostics/  # IKifuLog
-src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice）。常駐アプリ（M5）ができるまでの確認用
+src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice / rebuild）。常駐アプリ（M5）ができるまでの確認用
+schema/game-log.schema.json  # プラグインのリポジトリの schema/ の写し（テスト用。正本は M6 までプラグイン側。変えるときは両方）
 tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs などで短いログを組み立てる
-tools/HsbgKifu.DevTools/  # kifu-dev.exe（配布しない）: verify-parse（プラグインの記録との答え合わせ）
+tools/HsbgKifu.DevTools/  # kifu-dev.exe（配布しない）: verify-parse / verify-json（プラグインの記録との答え合わせ）
 scripts/          # backup-powerlogs.ps1（M0）
 spike/            # 試作（製品のコードではない）
 ```

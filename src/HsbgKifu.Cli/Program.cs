@@ -1,3 +1,4 @@
+using HsbgKifu.Capture;
 using HsbgKifu.Diagnostics;
 using HsbgKifu.Watch;
 
@@ -6,10 +7,11 @@ namespace HsbgKifu.Cli;
 /// <summary>
 /// 開発・確認用のコマンド。常駐アプリ（M5）ができるまでは、これで Power.log を監視する。
 /// <code>
-/// hsbg-kifu watch [--out DIR] [--hs DIR] [--log FILE]   常駐して Power.log を読み続け、ゲームごとに切り出す（Ctrl+C で止める）
-/// hsbg-kifu slice --logs DIR [--out DIR]                 終わったログフォルダ（Logs や M0 の退避先）をまとめて切り出す
+/// hsbg-kifu watch [--out DIR] [--hs DIR] [--log FILE]   常駐して Power.log を読み続け、ゲームごとに切り出して記録を作る（Ctrl+C で止める）
+/// hsbg-kifu slice --logs DIR [--out DIR]                 終わったログフォルダ（Logs や M0 の退避先）をまとめて切り出す（記録は作らない）
+/// hsbg-kifu rebuild [--out DIR]                           中継ログ（&lt;out&gt;\.slices）から記録を作り直す
 /// </code>
-/// 中継ログは &lt;out&gt;\.slices\ に書く。&lt;out&gt; の既定は %USERPROFILE%\Documents\HSBG-Logs。
+/// 中継ログは &lt;out&gt;\.slices\ に、記録は &lt;out&gt;\YYYY\MM\ に書く。&lt;out&gt; の既定は %USERPROFILE%\Documents\HSBG-Logs。
 /// </summary>
 public static class Program
 {
@@ -36,7 +38,10 @@ public static class Program
                 using var cancel = new CancellationTokenSource();
                 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
                 var watcher = new KifuWatcher(new KifuWatcherOptions { LogsDirectory = logsDir, SlicesRoot = slicesRoot }, log);
-                log.Info($"中継ログの置き場: {slicesRoot}（Ctrl+C で止めます）");
+                var writer = new KifuWriterService(outDir, log: log);
+                watcher.Store.SliceFinished += (meta, gz) => writer.Process(meta, gz);
+                writer.CatchUp(watcher.Store); // 中継ログはあるのに記録が無いゲーム（記録を書く前に止まったなど）
+                log.Info($"記録の置き場: {outDir}（中継ログは {slicesRoot}。Ctrl+C で止めます）");
                 await watcher.RunAsync(cancel.Token);
                 return 0;
             }
@@ -48,6 +53,20 @@ public static class Program
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var n = BatchSlicer.SliceAll(logsDir, store, log);
                 log.Info($"{n} ゲームを切り出しました（{sw.Elapsed.TotalSeconds:F1} 秒）。置き場: {slicesRoot}");
+                return 0;
+            }
+            case "rebuild":
+            {
+                var store = new SliceStore(slicesRoot);
+                var writer = new KifuWriterService(outDir, log: log);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int done = 0, total = 0;
+                foreach (var (meta, gz) in store.Finished)
+                {
+                    total++;
+                    if (writer.Process(meta, gz) != null) done++;
+                }
+                log.Info($"{total} ゲームのうち {done} ゲームの記録を書きました（{sw.Elapsed.TotalSeconds:F1} 秒）。置き場: {outDir}");
                 return 0;
             }
             default:
@@ -72,11 +91,13 @@ public static class Program
         Console.Error.WriteLine("""
             使い方:
               hsbg-kifu watch [--out DIR] [--hs DIR] [--log FILE]
-                  常駐して Power.log を読み続け、ゲームごとの中継ログを書く（Ctrl+C で止める）
+                  常駐して Power.log を読み続け、ゲームごとの中継ログと記録を書く（Ctrl+C で止める）
               hsbg-kifu slice --logs DIR [--out DIR]
-                  終わったログフォルダ（Hearthstone の Logs、または backup-powerlogs.ps1 の退避先）をまとめて切り出す
+                  終わったログフォルダ（Hearthstone の Logs、または backup-powerlogs.ps1 の退避先）をまとめて切り出す（記録は作らない）
+              hsbg-kifu rebuild [--out DIR]
+                  中継ログ（<out>\.slices）から記録を作り直す。同じゲームの別の記録（プラグインの記録など）があれば書かない
 
-              --out  出力先（既定: Documents\HSBG-Logs）。中継ログは <out>\.slices\ に書く
+              --out  出力先（既定: Documents\HSBG-Logs）。中継ログは <out>\.slices\、記録は <out>\YYYY\MM\ に書く
               --hs   Hearthstone のフォルダ（既定: HDT の config.xml の HearthstoneDirectory）
               --log  動作記録を書くファイル
             """);
