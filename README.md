@@ -25,25 +25,31 @@ Hearthstone のログフォルダ（`<Hearthstone のフォルダ>\Logs\Hearthst
 - 退避したファイルには、同じロビーの全員の BattleTag が入ります。人に渡さないでください
 - 実行ポリシーで止まるときは `powershell -ExecutionPolicy Bypass -File .\scripts\backup-powerlogs.ps1` で実行します
 
-## 開発中の使い方（M1: ゲームごとの切り出しまで）
+## 開発中の使い方（M3: 記録の JSON まで）
 
-まだ記録の JSON は作りません。Power.log をゲームごとの中継ログ（`.power.log.gz` と `.slice.json`）に切り出すところまでです。
-.NET 8 SDK が要ります。
+Power.log をゲームごとの中継ログ（`.slices\` の `.power.log.gz` と `.slice.json`）に切り出し、ゲームが終わるたびに記録（棋譜）の JSON を作ります。
+記録の形はプラグインと同じで、hsbg-kansousen でそのまま読めます。MMR とロビーの種族はまだ入りません（M4）。.NET 8 SDK が要ります。
 
 ```powershell
 dotnet build HsbgKifu.sln -c Release
 $kifu = ".\src\HsbgKifu.Cli\bin\Release\net8.0\hsbg-kifu.exe"
 
-# 常駐して Power.log を読み続ける（Ctrl+C で止める）。中継ログは <出力先>\.slices\ に書く
+# 常駐して Power.log を読み続け、ゲームが終わるたびに記録を書く（Ctrl+C で止める）
 & $kifu watch --out "$env:USERPROFILE\Documents\HSBG-Kifu-Test" --log "$env:USERPROFILE\Documents\HSBG-Kifu-Test\kifu.log"
 
-# 終わったログフォルダをまとめて切り出す（Hearthstone の Logs や、上の退避先）
+# 終わったログフォルダをまとめて切り出す（Hearthstone の Logs や、上の退避先。記録は作らない）
 & $kifu slice --logs "$env:USERPROFILE\Documents\HSBG-PowerLogs" --out "$env:USERPROFILE\Documents\HSBG-Kifu-Test"
+
+# 中継ログから記録を作り直す
+& $kifu rebuild --out "$env:USERPROFILE\Documents\HSBG-Kifu-Test"
 ```
 
-- `--out` の既定は `Documents\HSBG-Logs` です（プラグインの記録と同じ場所。`.slices` はドットで始まるので hsbg-kansousen は読みません）
+- 記録は `<出力先>\YYYY\MM\` に、`.json`・`.events.jsonl`・`.power.log.gz` を書きます（プラグインと同じ置き方）
+- `--out` の既定は `Documents\HSBG-Logs` です（プラグインの記録と同じ場所。`.slices` はドットで始まるので hsbg-kansousen は読みません）。
+  同じゲームの記録（プラグインの記録など）がすでにあれば書かないので、二重にはなりません。
+  `watch` は起動時に、中継ログはあるのに記録が無いゲームの記録も作ります
 - `--hs` で Hearthstone のフォルダを指定できます（既定は HDT の設定から探します）
-- 中継ログには、同じロビーの全員の BattleTag が入ります。人に渡さないでください
+- 中継ログと `.power.log.gz` には、同じロビーの全員の BattleTag が入ります。人に渡さないでください
 
 ## ライセンス
 

@@ -24,10 +24,11 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 |---|---|---|
 | Watch | ログフォルダの監視、Power.log を後ろから読み続ける、ゲームごとの切り出しと中継ログ、起動時の取りこぼしの回収 | 新規 |
 | Parse | Power.log の行 → Entity の状態（`GameState` 相当）と出来事（ゲーム開始・ヒーロー選択・ショップ開始・戦闘開始・ダメージ・ゲーム終了・再接続） | 新規（M2）。HDT が受け持っていた範囲。下の「状態と出来事」 |
-| Capture | 出来事ごとに状態からスナップショットを取る（盤面・手札・ショップ・ロビー・強化・神） | プラグインの `Capture/GameSession` などを、HDT の型を使わない形に書き直す |
-| Logic | 純粋ロジック | プラグインの `Logic/` をそのまま移す |
-| Model / Output | DTO と書き出し | プラグインの `Model/`・`Output/` を移す。Newtonsoft.Json は NuGet で同梱する（HDT 同梱の版に頼れなくなる） |
-| Meta | MMR（`BgsLastGames.xml`）、ゲーム番号（`GameNetLogger.log`）、カードのデータ（CardDefs） | 新規 |
+| Capture | 出来事ごとに状態からスナップショットを取る（盤面・手札・ショップ・ロビー・強化・神）→ 記録（GameLog）と events.jsonl | M3。プラグインの `Capture/GameSession` などを `GameRecorder` に書き直した。下の「記録を作る」 |
+| Logic | 純粋ロジック | M3 でプラグインの `Logic/` を移した（ShopActionTracker はまとまりの途中の tick を扱えるようにした） |
+| Model / Output | DTO と書き出し | M3 でプラグインの `Model/`・`Output/` を移した。Newtonsoft.Json は NuGet で同梱する（HDT 同梱の版に頼れなくなる） |
+| Cards | カードの情報（名前・dbfId・ティア・種族・攻撃力・体力） | M3。HDT が更新し続ける `CardDefs.base.xml` を読む（`CardDb`） |
+| Meta | MMR（`BgsLastGames.xml`）、ゲーム番号（`GameNetLogger.log`） | ゲーム番号は M1。MMR は M4 |
 | App | タスクトレイ、設定画面、ログ出力、自動起動 | プラグインの `UI/`・`Config/`・`Diagnostics/` を移す |
 
 ## 状態と出来事（Parse。M2 で実装）
@@ -54,6 +55,29 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 - プレイヤー名（BattleTag）は名前の解決にだけ使い、`PowerGame` の外に出さない（`internal`）
 - 受け手の例外は捕まえて動作記録に書き、読み取りは続ける
 - `SliceReplay` は中継ログ（.power.log.gz）を読んでパーサに流す（M3 の作り直しコマンドの土台）
+
+## 記録を作る（Capture。M3 で実装）
+
+- `KifuBuilder.Build(中継ログ, 付帯情報, CardDb)` が中継ログを頭から読み、`GameRecorder`（PowerGameListener）で記録を組み立てる。
+  ゲームが終わってから中継ログ全体を読み直して作るので、ゲーム中に作る場合も作り直しも同じ処理・同じ結果になる（1 ゲーム 0.3〜1 秒）
+- 常駐: 中継ログを書き終えたら（`SliceStore.SliceFinished`。起動時の回収でも）、`KifuWriterService` が記録を作って書く。作り直し: `hsbg-kifu rebuild`
+- 書き出し: `<出力先>\YYYY\MM\<yyyyMMdd-HHmmss>_<game_id>.json` と、同じ名前の `.events.jsonl`・`.power.log.gz`（プラグインと同じ置き方）。
+  `.power.log.gz` は中継ログの `GameState.` の行だけ（プラグインの写しと同じ中身。hsbg-kansousen の補完コマンドが読む）
+- 二重記録の防止: 出力先に、開始時刻（ファイル名）が 2 分以内で game_id が違う記録（= 同じゲームのプラグインの記録）があれば書かない。自分の記録は上書きする
+- 書き終えるたびに .NET のメモリを回収して OS に返す（常駐中の使用量を抑える。docs/research.md §3.2）
+
+| プラグイン（HDT） | GameRecorder |
+|---|---|
+| OnGameStart | OnGameCreated（generator、game_id、started_at） |
+| OnTurnStart(Player) / OnTurnStart(Opponent) | OnTurnChanged（奇数 = ショップの始まり / 偶数 = ショップの終わり） |
+| OnUpdate の IsBattlegroundsCombatPhase の false → true | OnCombatSetupEnded（相手のヒーローと盤面） |
+| OnUpdate の差分の観測（約 100 ms ごと） | OnBatchEnd（ショップはまとまりの終わり、戦闘中の強化と神祇はブロックの終わりでも） |
+| ショップの行動の差分からの推定 | 購入・売却・リロール・スペル・悪夢の発見・ヒーローパワーは自分の PLAY ブロック（`ShopBlockActions`）、ほかは ShopActionTracker |
+| OnEntityWillTakeDamage | OnPredamage（戦闘のダメージ = 戦闘の結果のダメージ。アイスブロックで防がれても数える） |
+| BattlegroundsHeroPickState | ヒーロー選択（MULLIGAN）の選択肢の Entity |
+| OnGameEnd | OnGameEnded（ended_at = 中継ログの最後）。終わりが無ければ Finish で未完了 |
+
+まだ無いもの: 再接続の 2 つの中継ログをつなぐ（M4）、MMR（M4）、ロビーの種族（M4）、Bob's Buddy（取れない。null）、地域（null）
 
 ## Power.log の読み方
 
