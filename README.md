@@ -11,6 +11,21 @@ HDT とは別に起動して、Hearthstone のログファイルを読むだけ�
 - 設計（案）: [docs/architecture.md](docs/architecture.md)
 - 進み具合: [TASKS.md](TASKS.md)
 
+## HDT と一緒に使ってください
+
+hsbg-kifu は、HDT（Hearthstone Deck Tracker）と一緒に動かす前提です。いくつかの値は HDT が書くファイルから読みます。
+HDT が無くても記録は作れますが、そのとき取れない値は空（null や空の配列）になり、記録の `notes` に理由を書きます。
+空になっても記録の形（JSON Schema）としては正しく、hsbg-kansousen で読めます。
+
+| HDT から読むもの | 使い道 | HDT が無いとき |
+|---|---|---|
+| `%APPDATA%\HearthstoneDeckTracker\BgsLastGames.xml` | MMR（前・後）。Hearthstone のログには出ないので、HDT がゲームのメモリから読んで書いた値を使う。直近の 18 ゲームほどしか残らない | `mmr_before` / `mmr_after` / `mmr_delta` が null（notes に "mmr_before unavailable" など） |
+| `%APPDATA%\HearthstoneDeckTracker\CardDefs\CardDefs.base.xml` | カードの名前・dbfId・ティア・2 つ目の種族（HDT が更新し続ける） | 残っているファイルを使う（更新されない）。無ければ名前などが null。カード ID・攻撃力・体力・ロビーの種族は Power.log から取るので変わらない |
+| `%LOCALAPPDATA%\Blizzard\Hearthstone\log.config` | Hearthstone に Power.log を出させる設定（HDT が書く） | 一度設定されれば残る。設定が無いと Power.log が出ず、記録できない |
+| `%APPDATA%\HearthstoneDeckTracker\config.xml` | Hearthstone のフォルダの場所 | 既定の場所（`C:\Program Files (x86)\Hearthstone`）。`--hs` で指定できる |
+
+どれも読むだけで、HDT のファイルを書き換えることはありません。
+
 ## 記録アプリができるまでの退避
 
 Hearthstone のログフォルダ（`<Hearthstone のフォルダ>\Logs\Hearthstone_<日時>\`）は 6 起動分ほどで消えます。
@@ -25,10 +40,11 @@ Hearthstone のログフォルダ（`<Hearthstone のフォルダ>\Logs\Hearthst
 - 退避したファイルには、同じロビーの全員の BattleTag が入ります。人に渡さないでください
 - 実行ポリシーで止まるときは `powershell -ExecutionPolicy Bypass -File .\scripts\backup-powerlogs.ps1` で実行します
 
-## 開発中の使い方（M3: 記録の JSON まで）
+## 開発中の使い方（M4: 記録の JSON まで。常駐アプリは M5）
 
 Power.log をゲームごとの中継ログ（`.slices\` の `.power.log.gz` と `.slice.json`）に切り出し、ゲームが終わるたびに記録（棋譜）の JSON を作ります。
-記録の形はプラグインと同じで、hsbg-kansousen でそのまま読めます。MMR とロビーの種族はまだ入りません（M4）。.NET 8 SDK が要ります。
+記録の形はプラグインと同じで、hsbg-kansousen でそのまま読めます。MMR は HDT の `BgsLastGames.xml` から読み（`watch` はゲームの後に最長 60 秒待って書き直します）、
+ロビーの種族はショップに並んだミニオンから決めます。.NET 8 SDK が要ります。
 
 ```powershell
 dotnet build HsbgKifu.sln -c Release

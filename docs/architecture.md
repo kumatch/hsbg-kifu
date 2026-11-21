@@ -28,7 +28,7 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 | Logic | 純粋ロジック | M3 でプラグインの `Logic/` を移した（ShopActionTracker はまとまりの途中の tick を扱えるようにした） |
 | Model / Output | DTO と書き出し | M3 でプラグインの `Model/`・`Output/` を移した。Newtonsoft.Json は NuGet で同梱する（HDT 同梱の版に頼れなくなる） |
 | Cards | カードの情報（名前・dbfId・ティア・種族・攻撃力・体力） | M3。HDT が更新し続ける `CardDefs.base.xml` を読む（`CardDb`） |
-| Meta | MMR（`BgsLastGames.xml`）、ゲーム番号（`GameNetLogger.log`） | ゲーム番号は M1。MMR は M4 |
+| Meta | MMR（`BgsLastGames.xml`。`Capture/BgsLastGames`）、ゲーム番号（`GameNetLogger.log`）、ロビーの種族（`Capture/LobbyMinionTypes`） | ゲーム番号は M1。MMR・ロビーの種族・再接続のつなぎは M4 |
 | App | タスクトレイ、設定画面、ログ出力、自動起動 | プラグインの `UI/`・`Config/`・`Diagnostics/` を移す |
 
 ## 状態と出来事（Parse。M2 で実装）
@@ -77,7 +77,10 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 | BattlegroundsHeroPickState | ヒーロー選択（MULLIGAN）の選択肢の Entity |
 | OnGameEnd | OnGameEnded（ended_at = 中継ログの最後）。終わりが無ければ Finish で未完了 |
 
-まだ無いもの: 再接続の 2 つの中継ログをつなぐ（M4）、MMR（M4）、ロビーの種族（M4）、Bob's Buddy（取れない。null）、地域（null）
+- ロビーの種族: ショップに並んだミニオンの種族の上位 5 つ（無種族・全種族は数えない）。MMR: BgsLastGames.xml を開始時刻で照らす（常駐中は後の MMR を最長 60 秒待って書き直す）。
+  再接続: 同じゲーム番号の中継ログ（2 つ目以降が reconnecting）を続けて読んで 1 つの記録にし、見られなかった戦闘は HP + アーマーの差から推定する（docs/research.md §3.3）
+
+取れないもの: Bob's Buddy（null）、地域（null）
 
 ## Power.log の読み方
 
