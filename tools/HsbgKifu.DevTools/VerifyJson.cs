@@ -21,8 +21,8 @@ internal static class VerifyJson
     /// <summary>比べない項目（docs/research.md §M3）。</summary>
     private static readonly string[] Ignored =
     {
-        "generator.", "game.game_id", "game.started_at", "game.ended_at", "game.duration_sec", "game.region", "game.minion_types",
-        "result.mmr_before", "result.mmr_after", "result.mmr_delta", "notes", "turns[*].combat.bobs_buddy",
+        "generator.", "game.game_id", "game.started_at", "game.ended_at", "game.duration_sec", "game.region",
+        "notes", "turns[*].combat.bobs_buddy",
     };
 
     public static int Run(string slicesDir, string pluginDir, string? outDir, int show)
@@ -32,7 +32,8 @@ internal static class VerifyJson
         var plugin = LoadPlugin(pluginDir);
         var kinds = new Dictionary<string, int>();
         var examples = new Dictionary<string, List<string>>();
-        int games = 0, matched = 0, withDiff = 0, fields = 0, diffs = 0, skippedOld = 0;
+        int games = 0, matched = 0, withDiff = 0, fields = 0, diffs = 0, skippedOld = 0, mmrGames = 0;
+        var ratings = new BgsLastGames();
         var actionFields = new[] { "buys", "sells", "rerolls", "tier_ups", "hero_power_uses", "spells_played", "dark_gifts" };
         var truthStats = actionFields.ToDictionary(f => f, _ => new int[3]); // [比べたターン, kifu が違う, plugin が違う]
         var log = new TextKifuLog(TextWriter.Null);
@@ -69,6 +70,16 @@ internal static class VerifyJson
                     }
                 }
             }
+            // MMR: 常駐・作り直しと同じく BgsLastGames.xml から（直近の 18 ゲームほどしか残らないので、無いゲームは比べない）
+            var rating = ratings.Find(result.Log.Game.StartedAt ?? meta.StartTime);
+            var compareMmr = rating?.RatingAfter != null;
+            if (compareMmr)
+            {
+                mmrGames++;
+                result.Log.Result.MmrBefore = rating!.Rating;
+                result.Log.Result.MmrAfter = rating.RatingAfter;
+                if (rating.Rating is { } rb) result.Log.Result.MmrDelta = rating.RatingAfter - rb;
+            }
             var ours = Flatten(JsonDocument.Parse(GameLogWriter.Serialize(result.Log)).RootElement);
             var theirs = Flatten(JsonDocument.Parse(File.ReadAllText(pj.Path)).RootElement);
             var gameDiffs = 0;
@@ -77,6 +88,7 @@ internal static class VerifyJson
             {
                 var kind = Index.Replace(key, "[*]");
                 if (Ignored.Any(i => kind.StartsWith(i, StringComparison.Ordinal))) continue;
+                if (!compareMmr && kind.StartsWith("result.mmr_", StringComparison.Ordinal)) continue;
                 // プラグインの記録に無い種類の項目（古い版のプラグインがまだ書いていなかったもの）は比べない
                 if (!theirs.ContainsKey(key) && !pluginKinds.Contains(kind)) { skippedOld++; continue; }
                 fields++;
@@ -92,7 +104,7 @@ internal static class VerifyJson
             if (gameDiffs > 0) withDiff++;
             Console.WriteLine($"{name}: {(gameDiffs == 0 ? "一致" : $"違い {gameDiffs} 件")}");
         }
-        Console.WriteLine($"--- {games} ゲーム（対応 {matched}）、違いのあるゲーム {withDiff}、項目 {fields} 件中 {diffs} 件の違い（プラグインの記録に無い項目 {skippedOld} 件は比べていない）");
+        Console.WriteLine($"--- {games} ゲーム（対応 {matched}）、違いのあるゲーム {withDiff}、項目 {fields} 件中 {diffs} 件の違い（プラグインの記録に無い項目 {skippedOld} 件は比べていない。MMR を比べたゲーム {mmrGames}）");
         Console.WriteLine("  行動の回数と正解（自分の PLAY ブロック）の比較: 項目 / 比べたターン / kifu が違う / プラグインが違う");
         foreach (var f in actionFields) Console.WriteLine($"    {f,-16} {truthStats[f][0],5} {truthStats[f][1],5} {truthStats[f][2],5}");
         foreach (var (k, v) in kinds.OrderByDescending(kv => kv.Value))
