@@ -51,6 +51,7 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 5. 作業の区切りの報告では、**両方のリポジトリ**について変更したファイルと推奨するコミットメッセージを出す
 
 hsbg-kansousen の CI も、このリポジトリの main の schema / `docs/log-schema.md` とコピーが違えば失敗する（push 後の最後の確認）。
+そのため push は **このリポジトリの main を先に** し、その後で hsbg-kansousen を push する（逆だと hsbg-kansousen の CI が古い main と比べて失敗する。2026-11-22）。
 リリースでは、ログの版が前のリリースから変わっていれば **hsbg-kansousen を先に** リリースする。
 
 ## 検証コマンド

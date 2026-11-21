@@ -17,7 +17,7 @@
 - 2026-11-21: M3（中継ログから記録の JSON を作る。常駐の監視と作り直しのコマンドにつないだ。実機確認済み）
 - 2026-11-21: M4（MMR、ロビーの種族、再接続のつなぎ。実機確認済み）。M5 の常駐アプリ（実機確認済み）、M6 の仕様の正本の移動。
   M7 の配布の zip（.NET 10。zip から入れ直して実機確認済み）。GitHub に push した。
-- 2026-11-22: v0.1.0 をリリースした（M7 完了）。M3.5 のアイスブロック（schema 1.10.0）を実装し、プラグインの power.log.gz で答え合わせ済み、実機確認済み。リリースが残り
+- 2026-11-22: v0.1.0 をリリースした（M7 完了）。M3.5 のアイスブロック（schema 1.10.0）を実装し、プラグインの power.log.gz で答え合わせ済み、実機確認済み。v0.2.0 をリリースした（hsbg-kansousen 0.4.0 の後）
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
@@ -110,7 +110,9 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
       要約の戦闘の列に「(my Ice Block)」「(opp. Ice Block)」、Key moments、log-caveats.md
 - [x] 実機確認（2026-11-22）: 0.2.0 の常駐アプリで 1 ゲーム。記録は schema 1.10.0・plugin_version 0.2.0 で、各ターンの戦闘に結果と
       `ice_block` / `opponent_ice_block` が入った（このゲームではアイスブロックは発動せず false）
-- [ ] リリース: hsbg-kansousen（1.10.0 を読める hsbg）を先に出してから、hsbg-kifu 0.2.0。保存済みのログを power.log から補う `hsbg backfill-*` は、要るなら別に作る
+- [x] リリース（2026-11-22）: hsbg-kansousen 0.4.0（1.10.0 を読める hsbg）を先に出してから、hsbg-kifu 0.2.0（zip の SHA-256 は `d46f9cf5…ab58`）。
+      hsbg-kansousen を先に push したため、その CI の `schema` ジョブが古い hsbg-kifu の main と比べて一度失敗した（再実行で緑）。push の順番を CLAUDE.md に書いた
+- [ ] （任意）保存済みのログを power.log から補う `hsbg backfill-*` にアイスブロックを足す
 
 ### M4. HDT のファイルから補う値（Meta）
 - [x] MMR: `BgsLastGames.xml` を開始時刻で照らす（`Capture/BgsLastGames`）。常駐中は後の値を最長 60 秒待って書き直す。XML に残る 18 ゲームでプラグインの記録と一致。
