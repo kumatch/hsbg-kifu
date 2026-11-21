@@ -154,6 +154,8 @@ public class GameRecorderTests
         Assert.Equal(3, t1.Combat.DamageDealt); // PREDAMAGE の 2 回目は数えない
         Assert.Equal(0, t1.Combat.DamageTaken);
         Assert.Null(t1.Combat.BobsBuddy);
+        Assert.False(t1.Combat.IceBlock);
+        Assert.False(t1.Combat.OpponentIceBlock);
 
         var events = r.EventLines.Select(JObject.Parse).ToList();
         var buy = events.Single(e => (string?)e["type"] == "buy");
@@ -163,6 +165,52 @@ public class GameRecorderTests
         Assert.Single(events, e => (string?)e["type"] == "reroll");
         Assert.Equal(new[] { "game_start", "hero_selected", "turn_start" }, events.Take(3).Select(e => (string?)e["type"])); // プラグインと同じ順
         Assert.Equal("game_end", (string?)events[^1]["type"]);
+    }
+
+    /// <summary>
+    /// ターン 1 の戦闘で、自分のヒーロー（HP 30 + アーマー 6）に 40 の PREDAMAGE。自分のアイスブロック（CONTROLLER 2）と、
+    /// 戦闘のために複製された相手のアイスブロック（CONTROLLER 10 = 相手役）がある。発動したほうは墓地へ、しなかったほうは墓地を経ずに消える
+    /// （docs/research.md §3.1「ダメージ」）。
+    /// </summary>
+    private static List<string> IceBlockTurn(bool mineTriggers, bool opponentTriggers)
+    {
+        var lines = OneTurn();
+        var combatStart = lines.FindIndex(l => l.Contains("tag=3533 value=0"));
+        var target = mineTriggers ? "100" : "300";
+        lines.RemoveRange(combatStart + 1, 4); // 相手のヒーローへの 3 を差し替える
+        lines.InsertRange(combatStart + 1, new[]
+        {
+            P("10:01:30.0000000", "    FULL_ENTITY - Creating ID=400 CardID=TB_Bacon_Secrets_12"),
+            P("10:01:30.0000000", "        tag=CONTROLLER value=2"),
+            P("10:01:30.0000000", "        tag=ZONE value=SECRET"),
+            P("10:01:30.0000000", "    FULL_ENTITY - Creating ID=401 CardID=TB_Bacon_Secrets_12"),
+            P("10:01:30.0000000", "        tag=CONTROLLER value=2"),
+            P("10:01:30.0000000", "        tag=ZONE value=SETASIDE"),
+            P("10:01:30.0000000", "    TAG_CHANGE Entity=401 tag=CONTROLLER value=10 "),
+            P("10:01:30.0000000", "    TAG_CHANGE Entity=401 tag=ZONE value=SECRET "),
+            P("10:01:31.0000000", $"    TAG_CHANGE Entity={target} tag=PREDAMAGE value=40 "),
+            P("10:01:31.0000000", $"    TAG_CHANGE Entity={target} tag=PREDAMAGE value=0 "),
+            P("10:01:31.0000000", $"    TAG_CHANGE Entity=400 tag=ZONE value={(mineTriggers ? "GRAVEYARD" : "SECRET")} "),
+            P("10:01:31.0000000", $"    TAG_CHANGE Entity=401 tag=ZONE value={(opponentTriggers ? "GRAVEYARD" : "REMOVEDFROMGAME")} "),
+        });
+        return lines;
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void RecordsWhichIceBlockTriggered(bool mine, bool opponent)
+    {
+        var r = Run(Setup().Concat(IceBlockTurn(mine, opponent)).Concat(End()));
+        var combat = r.Record!.Turns.Single(t => t.Turn == 1).Combat!;
+        Assert.Equal(mine, combat.IceBlock);
+        Assert.Equal(opponent, combat.OpponentIceBlock);
+        // 戦闘のダメージは防がれても数える（docs/research.md §3.1）
+        Assert.Equal(mine ? 40 : 0, combat.DamageTaken);
+        Assert.Equal(opponent ? 40 : 0, combat.DamageDealt);
+        var end = r.EventLines.Select(JObject.Parse).Single(e => (string?)e["type"] == "combat_end");
+        Assert.Equal(mine, (bool?)end["ice_block"]);
+        Assert.Equal(opponent, (bool?)end["opponent_ice_block"]);
     }
 
     [Fact]
@@ -408,6 +456,8 @@ public class ReconnectRecorderTests : IDisposable
         var t1 = log.Turns[0].Combat!;
         Assert.Equal("loss", t1.Result);     // 36 → 31 から推定
         Assert.Equal(5, t1.DamageTaken);
+        Assert.Null(t1.IceBlock);              // 戦闘を見ていないので分からない
+        Assert.Null(t1.OpponentIceBlock);
         Assert.Equal(25, log.Turns[1].Health); // ターン 2 のショップは再接続した時点から始めた
         Assert.Contains(log.Notes, n => n.StartsWith("reconnect: Hearthstone restarted"));
         Assert.Contains(log.Notes, n => n.Contains("turn 1 combat ended while disconnected; result loss inferred"));

@@ -72,6 +72,8 @@ public sealed class GameRecorder : PowerGameListener
     private SliceMeta _currentMeta;
     private DateTime? _opponentBoardRecheckAt;
     private readonly List<HeroDamageEvent> _damageEvents = new();
+    /// <summary>この戦闘で自分 / 相手のアイスブロックが発動したか（<see cref="OnTagChanged"/>。_damageEvents と同じ区間で数える）。</summary>
+    private bool _iceBlockMine, _iceBlockOpponent;
 
     // 神祇と「この対戦中」の強化（戦闘中は区切りごとに読み、戦闘の確定時に書く）
     private readonly DeityTracker _deity = new();
@@ -238,6 +240,30 @@ public sealed class GameRecorder : PowerGameListener
         });
     }
 
+    /// <summary>
+    /// アイスブロック（秘策 <see cref="IceBlockCardId"/>）が墓地に移った = 発動した（HP が 0 になるダメージを 1 度だけ無効にする）。
+    /// 持ち主はその時の CONTROLLER で決める。相手のアイスブロックは戦闘ごとに複製され、複製の CONTROLLER は相手役のプレイヤー
+    /// （発動しなければ墓地を経ずに REMOVEDFROMGAME に移る）。docs/research.md §3.1「ダメージ」
+    /// </summary>
+    public override void OnTagChanged(PowerGame game, Entity entity, int tag, int previous, int value, TagChangeKind kind)
+    {
+        if (!_active || tag != (int)GameTag.ZONE || value != (int)Zone.GRAVEYARD || kind != TagChangeKind.TagChange) return;
+        if (entity.CardId != IceBlockCardId && entity.OriginalCardId != IceBlockCardId) return;
+        if (game.LocalPlayerId is not { } local) return;
+        if (entity.IsControlledBy(local)) _iceBlockMine = true;
+        else _iceBlockOpponent = true;
+    }
+
+    /// <summary>アイスブロック（Safety Patch `BG35_MagicItem_820` などで得る秘策）。</summary>
+    internal const string IceBlockCardId = "TB_Bacon_Secrets_12";
+
+    private void ClearCombatEvents()
+    {
+        _damageEvents.Clear();
+        _iceBlockMine = false;
+        _iceBlockOpponent = false;
+    }
+
     public override void OnGameEnded(PowerGame game)
     {
         if (!_active || _record == null) return;
@@ -330,7 +356,7 @@ public sealed class GameRecorder : PowerGameListener
         _shopPhase = false;
         _inCombat = false;
         _opponentBoardRecheckAt = null;
-        _damageEvents.Clear();
+        ClearCombatEvents();
         _tracker.Reset();
         _deity.Reset();
         _playerSigil = null;
@@ -449,7 +475,7 @@ public sealed class GameRecorder : PowerGameListener
             if (_combatTurn == _interruptedCombatTurn) interrupted = _combatTurn;
             else ResolveCombat(game, _combatTurn, hero, crossCheck: true);
         }
-        _damageEvents.Clear();
+        ClearCombatEvents();
         _opponentBoardRecheckAt = null;
 
         if (hero != null)
@@ -513,7 +539,7 @@ public sealed class GameRecorder : PowerGameListener
         _combatTurn = turn;
         _combatStartMine = HealthAndArmor(hero);
         if (_interruptedCombatTurn == turn) _interruptedCombatTurn = 0; // ショップ中に落ちて同じショップに戻れた。この戦闘は普通に見られる
-        _damageEvents.Clear();
+        ClearCombatEvents();
 
         TrackTrinkets(game, turn);
         var fields = new List<KeyValuePair<string, object?>>
@@ -829,9 +855,12 @@ public sealed class GameRecorder : PowerGameListener
         rec.Combat.Result = outcome.Result;
         rec.Combat.DamageDealt = outcome.DamageDealt;
         rec.Combat.DamageTaken = outcome.DamageTaken;
+        rec.Combat.IceBlock = _iceBlockMine;
+        rec.Combat.OpponentIceBlock = _iceBlockOpponent;
         var fields = new List<KeyValuePair<string, object?>>
         {
             F("result", outcome.Result), F("damage_dealt", outcome.DamageDealt), F("damage_taken", outcome.DamageTaken),
+            F("ice_block", _iceBlockMine), F("opponent_ice_block", _iceBlockOpponent),
         };
         CompleteDeity(game, rec, fields);
         CompleteBuffs(game, rec, fields, gameEnd);

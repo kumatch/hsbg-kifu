@@ -17,7 +17,7 @@
 - 2026-11-21: M3（中継ログから記録の JSON を作る。常駐の監視と作り直しのコマンドにつないだ。実機確認済み）
 - 2026-11-21: M4（MMR、ロビーの種族、再接続のつなぎ。実機確認済み）。M5 の常駐アプリ（実機確認済み）、M6 の仕様の正本の移動。
   M7 の配布の zip（.NET 10。zip から入れ直して実機確認済み）。GitHub に push した。
-- 2026-11-22: v0.1.0 をリリースした（M7 完了）。次は M3.5
+- 2026-11-22: v0.1.0 をリリースした（M7 完了）。M3.5 のアイスブロック（schema 1.10.0）を実装し、プラグインの power.log.gz で答え合わせ済み、実機確認済み。リリースが残り
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
@@ -100,11 +100,17 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
 - 分かっていること（docs/research.md §3.1）: アイスブロックは秘策 `TB_Bacon_Secrets_12`（装飾品 Safety Patch `BG35_MagicItem_820` などで得る）。
   発動した戦闘では、ヒーローに PREDAMAGE は立つが META_DATA DAMAGE が出ず、HP が減らない。秘策の Entity がその戦闘で GRAVEYARD に移る。
   236 ゲームで自分の 6 件を確認（6 件とも次のターンの HP が変わらない）
-- [ ] 要検証: 相手のアイスブロック（防がれた側）が見分けられるか。10/18 12:09 の T11 は、相手の戦闘用ヒーローに PREDAMAGE 23 で META_DATA DAMAGE が無く、
-      同じ戦闘でアイスブロックの Entity が SECRET → GRAVEYARD に移ったが、その controller は自分の PlayerID だった。戦闘中の秘策の持ち主の表し方を確かめる
-- [ ] キーの案: `turns[].combat` に「自分のアイスブロックが発動した」「相手のアイスブロックが発動した」（真偽値、または防いだダメージ）。
-      damage_dealt / damage_taken は今のまま（戦闘の結果のダメージ）。events.jsonl の `combat_end` にも。hsbg-kansousen の列と log-caveats.md
-- [ ] 答え合わせ: 上の 6 件と、発動しなかったゲームで誤って立たないこと
+- [x] 要検証だった相手のアイスブロック: 見分けられる（2026-11-22、docs/research.md §3.1「アイスブロックの持ち主」）。相手のアイスブロックは戦闘ごとに複製され、
+      複製の `CONTROLLER` タグが相手役のプレイヤーになる。行の `[... player=N]` は作られたときの持ち主のままなので、自分に見えていた
+- [x] キー（schema 1.10.0、hsbg-kifu 0.2.0）: `combat.ice_block` と `combat.opponent_ice_block`（真偽値。戦闘を見られなければ null）。
+      防いだダメージは damage_taken / damage_dealt にあるので、真偽値にした。events.jsonl の `combat_end` にも。`GameRecorder.OnTagChanged`
+- [x] 答え合わせ: プラグインの power.log.gz 242 ゲーム（2,917 戦闘）から作り直し、自分 6 件・相手 1 件がすべて立ち、ほかの戦闘では立たなかった
+      （相手の複製があって発動しなかった戦闘は 8 ゲーム）。テスト `GameRecorderTests.RecordsWhichIceBlockTriggered`
+- [x] hsbg-kansousen: 仕様の写し、`KNOWN_SCHEMA_VERSION` 1.10.0、combats の列 `ice_block` / `opponent_ice_block`（`CACHE_FORMAT` 13）、
+      要約の戦闘の列に「(my Ice Block)」「(opp. Ice Block)」、Key moments、log-caveats.md
+- [x] 実機確認（2026-11-22）: 0.2.0 の常駐アプリで 1 ゲーム。記録は schema 1.10.0・plugin_version 0.2.0 で、各ターンの戦闘に結果と
+      `ice_block` / `opponent_ice_block` が入った（このゲームではアイスブロックは発動せず false）
+- [ ] リリース: hsbg-kansousen（1.10.0 を読める hsbg）を先に出してから、hsbg-kifu 0.2.0。保存済みのログを power.log から補う `hsbg backfill-*` は、要るなら別に作る
 
 ### M4. HDT のファイルから補う値（Meta）
 - [x] MMR: `BgsLastGames.xml` を開始時刻で照らす（`Capture/BgsLastGames`）。常駐中は後の値を最長 60 秒待って書き直す。XML に残る 18 ゲームでプラグインの記録と一致。

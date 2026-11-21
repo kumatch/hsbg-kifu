@@ -105,6 +105,13 @@ namespace HsbgKifu.Model
         public string? Result { get; set; }
         public int? DamageDealt { get; set; }
         public int? DamageTaken { get; set; }
+        /// <summary>
+        /// この戦闘で自分のアイスブロックが発動したか（HP が 0 になるダメージを防いだ。damage_taken は防いだダメージを含む）。
+        /// 戦闘を見られなかったら null。schema 1.10.0 で追加
+        /// </summary>
+        public bool? IceBlock { get; set; }
+        /// <summary>この戦闘で相手のアイスブロックが発動したか（相手を倒すはずのダメージが防がれた）。戦闘を見られなかったら null。schema 1.10.0 で追加</summary>
+        public bool? OpponentIceBlock { get; set; }
         public BobsBuddyPrediction? BobsBuddy { get; set; }
         /// <summary>相手の神祇。相手の Sigil は戦闘中だけ読める。schema 1.2.0 で追加</summary>
         public DeityRecord? OpponentDeity { get; set; }
