@@ -19,10 +19,17 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        if (args.Length < 1 || args[0] != "verify-parse") { Console.Error.WriteLine("kifu-dev verify-parse --slices DIR --plugin DIR [--verbose true]"); return 2; }
         var opts = new Dictionary<string, string>();
         for (var i = 1; i + 1 < args.Length; i += 2) opts[args[i].TrimStart('-')] = args[i + 1];
-        return VerifyParse.Run(opts["slices"], opts["plugin"], opts.GetValueOrDefault("verbose") == "true");
+        switch (args.Length > 0 ? args[0] : "")
+        {
+            case "verify-parse": return VerifyParse.Run(opts["slices"], opts["plugin"], opts.GetValueOrDefault("verbose") == "true");
+            case "verify-json": return VerifyJson.Run(opts["slices"], opts["plugin"], opts.GetValueOrDefault("out"), int.Parse(opts.GetValueOrDefault("show") ?? "3"));
+            default:
+                Console.Error.WriteLine("kifu-dev verify-parse --slices DIR|plugin --plugin DIR [--verbose true]");
+                Console.Error.WriteLine("kifu-dev verify-json  --slices DIR|plugin --plugin DIR [--out DIR] [--show N]");
+                return 2;
+        }
     }
 }
 
@@ -146,7 +153,7 @@ internal static class VerifyParse
     /// <summary>
     /// 比べる入力: <paramref name="slicesDir"/> の中継ログ。"plugin" を渡すと、プラグインが残した power.log.gz（HDT の写し。GameState の行だけ）を使う。
     /// </summary>
-    private static IEnumerable<(string Gz, SliceMeta Meta)> Inputs(string slicesDir, string pluginDir)
+    internal static IEnumerable<(string Gz, SliceMeta Meta)> Inputs(string slicesDir, string pluginDir)
     {
         if (slicesDir != "plugin")
         {
