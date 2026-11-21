@@ -166,6 +166,21 @@ public class GameRecorderTests
     }
 
     [Fact]
+    public async Task RecordWithoutMmrAndLobbyTypesIsValidAgainstTheSchema()
+    {
+        // HDT が無い（BgsLastGames.xml・CardDefs が無い）、ショップに 5 種族並ばなかった、といった取れない値があっても、記録の形として正しい
+        var log = Run(Setup().Concat(OneTurn()).Concat(End())).Record!;
+        Assert.Null(log.Result.MmrBefore);
+        Assert.Null(log.Result.MmrAfter);
+        Assert.Null(log.Result.MmrDelta);
+        Assert.Empty(log.Game.MinionTypes);
+        Assert.Null(log.Player.Hero.Name); // カードの情報が無い
+        var schema = await NJsonSchema.JsonSchema.FromJsonAsync(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "game-log.schema.json")));
+        var errors = schema.Validate(HsbgKifu.Output.GameLogWriter.Serialize(log)).Select(e => $"{e.Path}: {e.Kind}").ToArray();
+        Assert.True(errors.Length == 0, string.Join("\n", errors));
+    }
+
+    [Fact]
     public void GameThatEndsBeforeTurnOneIsDiscarded()
     {
         // ヒーロー選択中に外れた: ヒーローも順位も無いまま終わる（プラグインの AbortedGame と同じ判定）
@@ -232,7 +247,7 @@ public class KifuWriterServiceTests : IDisposable
     {
         var (meta, gz) = Slice();
         var outRoot = _tmp.Sub("out");
-        var path = new KifuWriterService(outRoot, cardDefsPath: Path.Combine(_tmp.Path, "none.xml")).Process(meta, gz);
+        var path = new KifuWriterService(outRoot, cardDefsPath: Path.Combine(_tmp.Path, "none.xml"), ratings: new BgsLastGames(Path.Combine(_tmp.Path, "none.xml"))).Process(meta, gz);
         Assert.NotNull(path);
         Assert.True(File.Exists(path));
         Assert.True(File.Exists(path!.Replace(".json", ".events.jsonl")));
@@ -240,12 +255,64 @@ public class KifuWriterServiceTests : IDisposable
         Assert.Equal(TestLogs.ReadGz(gz).Count, TestLogs.ReadGz(path.Replace(".json", ".power.log.gz")).Count); // GameState の行だけ（この中継ログは全部）
 
         // 自分の記録は上書きする（作り直し）
-        Assert.Equal(path, new KifuWriterService(outRoot, cardDefsPath: Path.Combine(_tmp.Path, "none.xml")).Process(meta, gz));
+        Assert.Equal(path, new KifuWriterService(outRoot, cardDefsPath: Path.Combine(_tmp.Path, "none.xml"), ratings: new BgsLastGames(Path.Combine(_tmp.Path, "none.xml"))).Process(meta, gz));
 
         // 同じゲームの別の記録（プラグインの記録。開始時刻が 1 秒前、game_id が違う）があれば書かない
         var other = _tmp.Sub("out2", "2026", "11");
         File.WriteAllText(Path.Combine(other, "20261120-100000_11111111-2222-3333-4444-555555555555.json"), "{}");
-        Assert.Null(new KifuWriterService(Path.Combine(_tmp.Path, "out2"), cardDefsPath: Path.Combine(_tmp.Path, "none.xml")).Process(meta, gz));
+        Assert.Null(new KifuWriterService(Path.Combine(_tmp.Path, "out2"), cardDefsPath: Path.Combine(_tmp.Path, "none.xml"), ratings: new BgsLastGames(Path.Combine(_tmp.Path, "none.xml"))).Process(meta, gz));
+    }
+
+    private BgsLastGames Ratings(string attrs)
+    {
+        var path = Path.Combine(_tmp.Path, Guid.NewGuid().ToString("N") + ".xml");
+        File.WriteAllText(path, $"<BgsLastGames>\n  <Game Player=\"1_2\" StartTime=\"2026-11-20T10:00:00.3000000+09:00\" {attrs} />\n</BgsLastGames>\n");
+        return new BgsLastGames(path);
+    }
+
+    [Fact]
+    public void FillsMmrFromBgsLastGames()
+    {
+        var (meta, gz) = Slice();
+        var none = Path.Combine(_tmp.Path, "none.xml");
+        var path = new KifuWriterService(_tmp.Sub("m1"), cardDefsPath: none, ratings: Ratings("Rating=\"8000\" RatingAfter=\"8050\"")).Process(meta, gz)!;
+        var json = JObject.Parse(File.ReadAllText(path));
+        Assert.Equal(8000, (int?)json["result"]!["mmr_before"]);
+        Assert.Equal(8050, (int?)json["result"]!["mmr_after"]);
+        Assert.Equal(50, (int?)json["result"]!["mmr_delta"]);
+        Assert.Contains(File.ReadAllLines(path.Replace(".json", ".events.jsonl")), l => l.Contains("\"type\":\"mmr_after\"") && l.Contains("\"mmr_delta\":50"));
+    }
+
+    [Fact]
+    public void WaitsForTheMmrAfterAndNotesItWhenItNeverComes()
+    {
+        var (meta, gz) = Slice();
+        var none = Path.Combine(_tmp.Path, "none.xml");
+        string path;
+        // 終わったばかりのゲーム（今 = 終わりの 30 秒後）として、後の MMR を待つ
+        var justEnded = new DateTimeOffset(new DateTime(2026, 11, 20, 10, 2, 40));
+        using (var w = new KifuWriterService(_tmp.Sub("m2"), cardDefsPath: none, mmrWait: TimeSpan.FromMinutes(5), ratings: Ratings("Rating=\"8000\""), now: () => justEnded))
+        {
+            path = w.Process(meta, gz)!;
+            var waiting = JObject.Parse(File.ReadAllText(path));
+            Assert.Equal(8000, (int?)waiting["result"]!["mmr_before"]);
+            Assert.DoesNotContain(waiting["notes"]!.Values<string>(), n => n == "mmr_after unavailable"); // まだ待っている
+        } // 止めるときに今の値で書き直す
+        var final = JObject.Parse(File.ReadAllText(path));
+        Assert.Null((int?)final["result"]!["mmr_after"]);
+        Assert.Contains(final["notes"]!.Values<string>(), n => n == "mmr_after unavailable");
+    }
+
+    [Fact]
+    public void DoesNotWaitForTheMmrOfAnOldGame()
+    {
+        // 起動時の回収で作る古いゲーム: BgsLastGames.xml に無ければもう入らないので、待たずに確定する
+        var (meta, gz) = Slice();
+        var none = Path.Combine(_tmp.Path, "none.xml");
+        using var w = new KifuWriterService(_tmp.Sub("m3"), cardDefsPath: none, mmrWait: TimeSpan.FromMinutes(5), ratings: new BgsLastGames(none));
+        var json = JObject.Parse(File.ReadAllText(w.Process(meta, gz)!));
+        Assert.Contains(json["notes"]!.Values<string>(), n => n == "mmr_before unavailable");
+        Assert.Contains(json["notes"]!.Values<string>(), n => n == "mmr_after unavailable");
     }
 
     [Fact]
@@ -263,8 +330,88 @@ public class KifuWriterServiceTests : IDisposable
 
         var outRoot = Path.Combine(_tmp.Path, "out3");
         var none = Path.Combine(_tmp.Path, "none.xml");
-        Assert.Equal(1, new KifuWriterService(outRoot, cardDefsPath: none).CatchUp(new SliceStore(root)));
-        Assert.Equal(0, new KifuWriterService(outRoot, cardDefsPath: none).CatchUp(new SliceStore(root))); // もう記録がある
+        Assert.Equal(1, new KifuWriterService(outRoot, cardDefsPath: none, ratings: new BgsLastGames(none)).CatchUp(new SliceStore(root)));
+        Assert.Equal(0, new KifuWriterService(outRoot, cardDefsPath: none, ratings: new BgsLastGames(none)).CatchUp(new SliceStore(root))); // もう記録がある
         Assert.Single(Directory.GetFiles(Path.Combine(outRoot, "2026"), "*.json", SearchOption.AllDirectories));
+    }
+}
+
+public class ReconnectRecorderTests : IDisposable
+{
+    private readonly TempDir _tmp = new();
+    public void Dispose() => _tmp.Dispose();
+
+    private static string P(string time, string body) => $"D {time} GameState.DebugPrintPower() - {body}";
+    private static string G(string time, string body) => $"D {time} GameState.DebugPrintGame() - {body}";
+
+    private static List<string> Players(string t, int turn, int heroDamage) => new()
+    {
+        P(t, "CREATE_GAME"),
+        P(t, "    GameEntity EntityID=4"),
+        P(t, $"        tag=TURN value={turn}"),
+        P(t, "    Player EntityID=5 PlayerID=2 GameAccountId=[hi=1 lo=2]"),
+        P(t, "        tag=CARDTYPE value=PLAYER"),
+        P(t, "        tag=HERO_ENTITY value=100"),
+        P(t, "    Player EntityID=6 PlayerID=10 GameAccountId=[hi=0 lo=0]"),
+        P(t, "        tag=CARDTYPE value=PLAYER"),
+        P(t, "        tag=BACON_DUMMY_PLAYER value=1"),
+        P(t, "FULL_ENTITY - Creating ID=100 CardID=BG36_HERO_105"),
+        P(t, "    tag=CARDTYPE value=HERO"),
+        P(t, "    tag=CONTROLLER value=2"),
+        P(t, "    tag=ZONE value=PLAY"),
+        P(t, "    tag=HEALTH value=30"),
+        P(t, $"    tag=DAMAGE value={heroDamage}"),
+        P(t, "    tag=ARMOR value=6"),
+        P(t, "TAG_CHANGE Entity=4 tag=STATE value=RUNNING "),
+        G(t, "GameType=GT_BATTLEGROUNDS"),
+        G(t, "PlayerID=2, PlayerName=Me"),
+    };
+
+    private (string Gz, SliceMeta Meta) Slice(string name, string session, string createTime, bool reconnecting, List<string> lines)
+    {
+        var gz = Path.Combine(_tmp.Path, name + ".power.log.gz");
+        TestLogs.WriteGz(gz, TestLogs.Join(lines));
+        var start = SessionClock.ParseSessionName(session)!.Value.Date + PowerLogLine.TimeOfDay("D " + createTime + " x")!.Value;
+        return (gz, new SliceMeta
+        {
+            Session = session, CreateGameTime = createTime, GameType = "GT_BATTLEGROUNDS", GameHandle = 1936, Reconnecting = reconnecting,
+            StartTime = new DateTimeOffset(start), Status = reconnecting ? SliceMeta.StatusComplete : SliceMeta.StatusIncomplete,
+        });
+    }
+
+    [Fact]
+    public void JoinsTheSlicesAndInfersTheCombatThatWasNotSeen()
+    {
+        // 1 つ目: ターン 1 のショップと戦闘の始まりまで（ここで Hearthstone が落ちた）
+        var first = Players("10:00:01.0000000", 0, 0);
+        first.AddRange(new[]
+        {
+            P("10:01:00.0000000", "TAG_CHANGE Entity=GameEntity tag=TURN value=1"),
+            P("10:01:30.0000000", "TAG_CHANGE Entity=GameEntity tag=TURN value=2"),
+            P("10:01:31.0000000", "TAG_CHANGE Entity=GameEntity tag=3533 value=1 "),
+            P("10:01:31.0000000", "TAG_CHANGE Entity=GameEntity tag=3533 value=0 "),
+        });
+        // 2 つ目: 再起動後、ターン 2 のショップ（TURN 3）の状態から。戦闘で 5 受けていた
+        var second = Players("10:03:00.0000000", 3, 5);
+        second.Add(P("10:05:00.0000000", "TAG_CHANGE Entity=100 tag=PLAYER_LEADERBOARD_PLACE value=2 "));
+        second.Add(P("10:05:00.0000000", "TAG_CHANGE Entity=GameEntity tag=STATE value=COMPLETE "));
+
+        var a = Slice("a", "Hearthstone_2026_10_17_10_00_00", "10:00:01.0000000", false, first);
+        var b = Slice("b", "Hearthstone_2026_10_17_10_02_30", "10:03:00.0000000", true, second);
+        var result = KifuBuilder.Build(new[] { a, b }, CardDb.Empty);
+        var log = result.Log!;
+
+        Assert.Equal(GameRecorder.GameIdFor(a.Meta), log.Game.GameId); // 最初の中継ログの ID
+        Assert.Equal(LogStatus.Complete, log.Status);
+        Assert.Equal(2, log.Result.Placement);
+        Assert.Equal(new[] { 1, 2 }, log.Turns.Select(t => t.Turn));
+        var t1 = log.Turns[0].Combat!;
+        Assert.Equal("loss", t1.Result);     // 36 → 31 から推定
+        Assert.Equal(5, t1.DamageTaken);
+        Assert.Equal(25, log.Turns[1].Health); // ターン 2 のショップは再接続した時点から始めた
+        Assert.Contains(log.Notes, n => n.StartsWith("reconnect: Hearthstone restarted"));
+        Assert.Contains(log.Notes, n => n.Contains("turn 1 combat ended while disconnected; result loss inferred"));
+        Assert.Contains(result.Events, e => e.Contains("\"type\":\"reconnect\""));
+        Assert.Contains(result.Events, e => e.Contains("\"type\":\"combat_end\"") && e.Contains("\"inferred\":true"));
     }
 }

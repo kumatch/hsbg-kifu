@@ -21,6 +21,10 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 - Hearthstone のログ: HDT の `%APPDATA%\HearthstoneDeckTracker\config.xml` の `HearthstoneDirectory` 配下の `Logs\Hearthstone_<日時>\Power.log`
   （終わった起動分は `Power_old.log`）。出力の設定は `%LOCALAPPDATA%\Blizzard\Hearthstone\log.config`
 - HDT のデータ: `%APPDATA%\HearthstoneDeckTracker\`（`BgsLastGames.xml`、`CardDefs\`）。**読むだけ**
+- **HDT と一緒に使う前提**（2026-11-21 にユーザーと決めた。README「HDT と一緒に使ってください」）: MMR は HDT の BgsLastGames.xml にしか無い
+  （Hearthstone のログに出ない。メモリ読み取りはしない）。カードの情報（CardDefs）と Power.log の設定（log.config）も HDT が用意する。
+  HDT が無くても記録は作れるようにし、取れない値は null / 空の配列にして notes に理由を書く。その記録も JSON Schema に合格させる
+  （`GameRecorderTests.RecordWithoutMmrAndLobbyTypesIsValidAgainstTheSchema`）。HDT のファイルに頼る値を増やすときは、無いときの挙動とテストも一緒に作る
 - プラグインの記録と power.log.gz（答え合わせに使う）: `%USERPROFILE%\Documents\HSBG-Logs`
 
 ## コーディング規約

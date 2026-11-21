@@ -38,7 +38,9 @@ public static class Program
                 using var cancel = new CancellationTokenSource();
                 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
                 var watcher = new KifuWatcher(new KifuWatcherOptions { LogsDirectory = logsDir, SlicesRoot = slicesRoot }, log);
-                var writer = new KifuWriterService(outDir, log: log);
+                // 後の MMR は HDT がゲームの後に BgsLastGames.xml へ書くので、最長 60 秒待って記録を書き直す
+                using var writer = new KifuWriterService(outDir, log: log, mmrWait: TimeSpan.FromSeconds(60));
+                writer.UseStore(watcher.Store);
                 watcher.Store.SliceFinished += (meta, gz) => writer.Process(meta, gz);
                 writer.CatchUp(watcher.Store); // 中継ログはあるのに記録が無いゲーム（記録を書く前に止まったなど）
                 log.Info($"記録の置き場: {outDir}（中継ログは {slicesRoot}。Ctrl+C で止めます）");
@@ -59,6 +61,7 @@ public static class Program
             {
                 var store = new SliceStore(slicesRoot);
                 var writer = new KifuWriterService(outDir, log: log);
+                writer.UseStore(store);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 int done = 0, total = 0;
                 foreach (var (meta, gz) in store.Finished)

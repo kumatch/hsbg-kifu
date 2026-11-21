@@ -55,12 +55,21 @@ public sealed class GameRecorder : PowerGameListener
     private readonly ShopBlockActions _blockActions = new();
     private readonly Stack<ShopBlockActions.Action?> _openBlocks = new();
     private readonly Dictionary<int, string?> _handSourceCache = new();
+    private readonly LobbyMinionTypes _lobbyTypes = new();
     private bool _shopPhase;
     private int _currentTurn;
 
     // 戦闘
     private bool _inCombat;
     private int _combatTurn;
+    /// <summary>戦闘直前（ショップ終了時 / 戦闘開始時）の自分の HP + アーマー（再接続で見られなかった戦闘の推定に使う）。</summary>
+    private int? _combatStartMine;
+    /// <summary>結果を見ないまま再接続した戦闘のターン（次のショップ開始時かゲーム終了時に HP + アーマーの差から推定する）。</summary>
+    private int _interruptedCombatTurn;
+    /// <summary>再接続の CREATE_GAME の下の Entity を当てはめ終えるまで待っている。</summary>
+    private bool _resumePending;
+    /// <summary>今読んでいる中継ログの付帯情報（再接続でつなぐときは 2 つ目以降のもの）。終わりの時刻に使う。</summary>
+    private SliceMeta _currentMeta;
     private DateTime? _opponentBoardRecheckAt;
     private readonly List<HeroDamageEvent> _damageEvents = new();
 
@@ -74,6 +83,7 @@ public sealed class GameRecorder : PowerGameListener
     public GameRecorder(SliceMeta meta, Cards.CardDb cards, RecorderOptions? options = null, IKifuLog? log = null)
     {
         _meta = meta;
+        _currentMeta = meta;
         _cards = new KifuCards(cards);
         _options = options ?? new RecorderOptions();
         _log = log ?? NullKifuLog.Instance;
@@ -89,14 +99,17 @@ public sealed class GameRecorder : PowerGameListener
     /// <summary>events.jsonl の行（1 行 1 JSON）。</summary>
     public IReadOnlyList<string> EventLines => _events;
 
+    /// <summary>次に読む中継ログ（再接続でつなぐとき、2 つ目以降の中継ログを読む前に呼ぶ）。</summary>
+    public void BeginSlice(SliceMeta meta) => _currentMeta = meta;
+
     // ------------------------------------------------------------------ 出来事
 
     public override void OnGameCreated(PowerGame game)
     {
         if (_record != null)
         {
-            // 同じ中継ログに 2 つ目の CREATE_GAME（再接続の続き）。つなぐのは M4
-            Note("reconnect: a second CREATE_GAME in the same slice was ignored (joining is not implemented yet)");
+            // 2 つ目の CREATE_GAME = Hearthstone が落ちた後の再接続。同じ記録を続ける
+            if (_active) Resume(game);
             return;
         }
         _game = game;
@@ -123,9 +136,16 @@ public sealed class GameRecorder : PowerGameListener
         };
         if (_record.Game.Variant == "duos") Note("duos: not fully supported (MVP targets solo)");
         if (_meta.Reconnecting == true || game.StartedMidGame)
-            Note("reconnect: this slice starts after a Hearthstone restart (joining with the earlier slice is not implemented yet)");
+            Note("reconnect: this record starts after a Hearthstone restart (the earlier part of the game was not found)");
         _active = true;
         Emit("game_start", 0, F("game_id", _record.Game.GameId), F("game_type", _record.Game.GameType), F("mmr_before", null));
+    }
+
+    public override void OnGameSetupDone(PowerGame game)
+    {
+        if (!_resumePending || !_active || _record == null || game != _game) return;
+        _resumePending = false;
+        ContinueAfterReconnect(game);
     }
 
     public override void OnChoices(PowerGame game, EntityChoice choice)
@@ -226,10 +246,12 @@ public sealed class GameRecorder : PowerGameListener
         var hero = FindPlayerHero(game);
 
         if (_shopPhase) FlushShopActions(game, turn);
-        ResolveCombat(game, _combatTurn > 0 ? _combatTurn : turn, hero, crossCheck: false, gameEnd: true);
+        var interrupted = _combatTurn > 0 && _combatTurn == _interruptedCombatTurn;
+        if (!interrupted) ResolveCombat(game, _combatTurn > 0 ? _combatTurn : turn, hero, crossCheck: false, gameEnd: true);
 
         FinalizeHero(game, hero, turn);
         UpdateLobby(game, turn, final: true);
+        if (interrupted) ResolveInterruptedCombat(_combatTurn, HealthAndArmor(hero));
         FillGameInfo(game);
 
         var placement = hero?.GetTag(GameTag.PLAYER_LEADERBOARD_PLACE) ?? 0;
@@ -248,7 +270,7 @@ public sealed class GameRecorder : PowerGameListener
             : log.Turns.LastOrDefault()?.TavernTier;
 
         // 終わりの時刻: 画面側の COMPLETE（中継ログの最後。HDT の OnGameEnd と同じころ）。無ければこの行の時刻
-        var endedAt = _meta.EndTime ?? new DateTimeOffset(game.LastTime);
+        var endedAt = _currentMeta.EndTime ?? new DateTimeOffset(game.LastTime);
         log.Game.EndedAt = endedAt;
         if (log.Game.StartedAt.HasValue)
             log.Game.DurationSec = (int)Math.Round((endedAt - log.Game.StartedAt.Value).TotalSeconds);
@@ -273,9 +295,145 @@ public sealed class GameRecorder : PowerGameListener
         }
         _record.Status = LogStatus.Incomplete;
         Note("the game did not end in the log (Hearthstone closed, crashed or the log was cut)");
+        if (_game != null) FillGameInfo(_game);
         CloseOpponents(_record);
         _active = false;
     }
+
+    // ------------------------------------------------------------------ 再接続（プラグインの ResumeAfterReconnect / ContinueAfterReconnect）
+
+    /// <summary>
+    /// Hearthstone が落ちて同じゲームに戻った（2 つ目の CREATE_GAME。その下にその時点の全 Entity が来る）。記録はそのまま続け、
+    /// Entity に依存する追跡だけをやり直す。続きは CREATE_GAME の下を当てはめ終えてから（<see cref="ContinueAfterReconnect"/>）。
+    /// </summary>
+    private void Resume(PowerGame game)
+    {
+        var log = _record!;
+        var lastTurn = Math.Max(_currentTurn, _combatTurn);
+        var phase = _shopPhase ? "shop" : _inCombat ? "combat" : "shop end";
+        if (_shopPhase && _currentTurn > 0)
+        {
+            // ショップ中に落ちた: このターンの戦闘は見られないものとして構える（同じショップに戻ってショップ終了を見れば OnShopEnd が取り消す）。
+            // 直前の値はショップ開始時の HP + アーマー。購入などの回数は PLAY ブロックで数え続ける
+            var rec = GetOrAddTurn(_currentTurn);
+            rec.Combat ??= new CombatRecord();
+            _combatTurn = _currentTurn;
+            _combatStartMine = rec.Health.HasValue ? rec.Health.Value + rec.Armor.GetValueOrDefault() : null;
+            _interruptedCombatTurn = _currentTurn;
+        }
+        else
+        {
+            var combat = _combatTurn > 0 ? log.Turns.FirstOrDefault(t => t.Turn == _combatTurn)?.Combat : null;
+            _interruptedCombatTurn = combat != null && combat.Result == null ? _combatTurn : 0;
+        }
+        _game = game;
+        _shopPhase = false;
+        _inCombat = false;
+        _opponentBoardRecheckAt = null;
+        _damageEvents.Clear();
+        _tracker.Reset();
+        _deity.Reset();
+        _playerSigil = null;
+        _opponentSigil = null;
+        ResetBuffs(keepPlayer: false);
+        _handSourceCache.Clear();
+        _resumePending = true;
+        // 戦闘を最後まで見られなかったかは、戻った先で決まる（同じショップに戻れば普通に見られる）。推定したときは ResolveInterruptedCombat が別に書く
+        var message = $"reconnect: Hearthstone restarted and resumed the same server game ({_currentMeta.GameHandle?.ToString() ?? "?"}); " +
+                      $"the log before the restart ended in turn {lastTurn} ({phase})";
+        log.Notes.Add(message);
+        _log.Info($"{_currentMeta.Session} {_currentMeta.CreateGameTime}: {message}");
+        Emit("reconnect", lastTurn, F("game_handle", _currentMeta.GameHandle),
+            F("interrupted_combat_turn", _interruptedCombatTurn > 0 ? _interruptedCombatTurn : null));
+    }
+
+    /// <summary>
+    /// 再接続した時点の状態が揃った。戦闘中に戻ったならその戦闘を「始まり」として拾わず、結果は後で推定する。
+    /// 同じショップに戻ったならショップの観測を再開する。後のショップに戻ったなら（間のショップ開始を見ていないので）ここでショップを始める。
+    /// </summary>
+    private void ContinueAfterReconnect(PowerGame game)
+    {
+        var turn = game.TurnNumber;
+        if (turn <= 0) return;
+        if (game.GameEntityTurn % 2 == 0)
+        {
+            // 戦闘中に戻った: 結果は次のショップ開始時に推定する。相手がまだ分からなければヒーローだけ読む（盤面は戦闘の途中なので書かない）
+            var rec = GetOrAddTurn(turn);
+            rec.Combat ??= new CombatRecord();
+            if (_combatTurn != turn)
+            {
+                if (_interruptedCombatTurn > 0 && _interruptedCombatTurn < turn)
+                    _record!.Notes.Add($"reconnect: turn {_interruptedCombatTurn} combat result unknown (back in turn {turn})");
+                _combatTurn = turn;
+                _combatStartMine = null;
+            }
+            _combatStartMine ??= HealthAndArmor(FindPlayerHero(game));
+            _interruptedCombatTurn = turn;
+            _inCombat = true;
+            _currentTurn = turn;
+            if (rec.Combat.OpponentHero.IsEmpty && Snapshots.OpponentHero(Snapshots.SafeEntities(game), game.OpponentPlayerId ?? 0) is { } oppHero)
+            {
+                KifuCards.Fill(rec.Combat.OpponentHero, _cards.FromCardId(oppHero.OriginalCardId ?? oppHero.CardId));
+                rec.Combat.OpponentHealth = oppHero.Health;
+                rec.Combat.OpponentArmor = oppHero.GetTag(GameTag.ARMOR);
+                var tier = oppHero.GetTag(GameTag.PLAYER_TECH_LEVEL);
+                rec.Combat.OpponentTavernTier = tier > 0 ? tier : null;
+                var pid = oppHero.GetTag(GameTag.PLAYER_ID);
+                if (pid > 0) rec.Combat.OpponentPlayerId = pid;
+            }
+        }
+        else if (turn == _currentTurn)
+        {
+            // 落ちる前と同じショップに戻った: 観測を続ける（最初の観測はベースラインになる）
+            _tracker.Reset();
+            _shopPhase = true;
+        }
+        else
+        {
+            // 後のショップに戻った: ショップ開始を見ていないので、ここで始める（前の戦闘は推定する）
+            _currentTurn = turn;
+            OnShopStart(game, turn);
+        }
+    }
+
+    /// <summary>
+    /// 再接続中に終わった戦闘の結果を、戦闘直前と今（次のショップ開始時 / ゲーム終了時）の HP + アーマーから推定する（Logic/Reconnect.InferCombat）。
+    /// 推定できなければ結果は null のまま。どちらの場合も notes に書く。
+    /// </summary>
+    private void ResolveInterruptedCombat(int combatTurn, int? mineAfter)
+    {
+        _interruptedCombatTurn = 0;
+        _deity.Reset();
+        _opponentSigil = null;
+        ResetBuffs(keepPlayer: true);
+        var rec = _record!.Turns.FirstOrDefault(t => t.Turn == combatTurn);
+        if (rec?.Combat == null || rec.Combat.Result != null) return;
+        var c = rec.Combat;
+        int? opponentBefore = c.OpponentHealth.HasValue ? c.OpponentHealth.Value + c.OpponentArmor.GetValueOrDefault() : null;
+        int? opponentAfter = null;
+        if (c.OpponentPlayerId.HasValue)
+        {
+            if (!opponentBefore.HasValue && rec.Lobby?.FirstOrDefault(l => l.PlayerId == c.OpponentPlayerId.Value) is { Health: not null } lobby)
+                opponentBefore = lobby.Health!.Value + lobby.Armor.GetValueOrDefault(); // 戦闘開始を見る前に落ちた: ショップ開始時のロビーの値
+            if (_opponents.TryGetValue(c.OpponentPlayerId.Value, out var o) && o.FinalHealth.HasValue)
+                opponentAfter = o.FinalHealth.Value + o.FinalArmor.GetValueOrDefault();
+        }
+        var outcome = Reconnect.InferCombat(_combatStartMine, mineAfter, opponentBefore, opponentAfter);
+        if (outcome != null)
+        {
+            c.Result = outcome.Result;
+            c.DamageDealt = outcome.DamageDealt;
+            c.DamageTaken = outcome.DamageTaken;
+        }
+        var message = $"reconnect: turn {combatTurn} combat ended while disconnected; result {outcome?.Result ?? "unknown"} inferred from health + armor " +
+                      $"(mine {Show(_combatStartMine)} -> {Show(mineAfter)}, opponent {Show(opponentBefore)} -> {Show(opponentAfter)})";
+        _record.Notes.Add(message);
+        Emit("combat_end", combatTurn, F("result", c.Result), F("damage_dealt", c.DamageDealt), F("damage_taken", c.DamageTaken), F("inferred", true));
+    }
+
+    private static string Show(int? v) => v.HasValue ? v.Value.ToString() : "?";
+
+    private static int? HealthAndArmor(Entity? hero) => hero != null ? hero.Health + hero.GetTag(GameTag.ARMOR) : null;
 
     // ------------------------------------------------------------------ ターン
 
@@ -284,9 +442,13 @@ public sealed class GameRecorder : PowerGameListener
         var rec = GetOrAddTurn(turn);
         var hero = FindPlayerHero(game);
 
-        // 前ターンの戦闘を確定
+        // 前ターンの戦闘を確定（再接続で見られなかった戦闘はロビーを読んでから推定する）
+        var interrupted = 0;
         if (_combatTurn > 0 && _combatTurn < turn)
-            ResolveCombat(game, _combatTurn, hero, crossCheck: true);
+        {
+            if (_combatTurn == _interruptedCombatTurn) interrupted = _combatTurn;
+            else ResolveCombat(game, _combatTurn, hero, crossCheck: true);
+        }
         _damageEvents.Clear();
         _opponentBoardRecheckAt = null;
 
@@ -302,6 +464,7 @@ public sealed class GameRecorder : PowerGameListener
         }
         if (turn == 1) FinalizeHero(game, hero, turn);
         UpdateLobby(game, turn, final: false);
+        if (interrupted > 0) ResolveInterruptedCombat(interrupted, HealthAndArmor(hero));
         SnapshotLobby(rec);
 
         _tracker.Reset();
@@ -348,6 +511,8 @@ public sealed class GameRecorder : PowerGameListener
         var next = hero?.GetTag(GameTag.NEXT_OPPONENT_PLAYER_ID) ?? 0;
         if (next > 0) rec.Combat.OpponentPlayerId = next;
         _combatTurn = turn;
+        _combatStartMine = HealthAndArmor(hero);
+        if (_interruptedCombatTurn == turn) _interruptedCombatTurn = 0; // ショップ中に落ちて同じショップに戻れた。この戦闘は普通に見られる
         _damageEvents.Clear();
 
         TrackTrinkets(game, turn);
@@ -412,6 +577,7 @@ public sealed class GameRecorder : PowerGameListener
         var offered = game.PendingChoice is { } c && c.ChoiceType != "MULLIGAN" && c.EntityIds.Count > 0 ? c.EntityIds.ToList() : null;
 
         var tick = Snapshots.Tick(ents, pid, opp, pe, hero, heroPower, offered, _handSourceCache);
+        _lobbyTypes.Observe(game, tick.ShopIds);
         var actions = _tracker.Observe(tick, packetEnd);
         if (actions.Count == 0) return;
         foreach (var a in actions)
@@ -614,6 +780,7 @@ public sealed class GameRecorder : PowerGameListener
         var rec = GetOrAddTurn(turn);
         rec.Combat ??= new CombatRecord();
         _combatTurn = turn;
+        _combatStartMine = HealthAndArmor(FindPlayerHero(game)) ?? _combatStartMine;
         var ents = Snapshots.SafeEntities(game);
         var oppId = game.OpponentPlayerId ?? 0;
         var oppHero = Snapshots.OpponentHero(ents, oppId);
@@ -834,7 +1001,17 @@ public sealed class GameRecorder : PowerGameListener
         if (oldGod > 0) KifuCards.Fill(log.Game.GlobalOldGod, _cards.FromDbfId(oldGod));
         if (ge != null && ge.GetTag(GameTag.BACON_COMBAT_DAMAGE_CAP_ENABLED) > 0)
             log.Game.CombatDamageCap = ge.GetTag(GameTag.BACON_COMBAT_DAMAGE_CAP);
-        // ロビーの種族は HDT がメモリから読んでいた。Power.log には無い（M4 で推定するか決める）
+        // ロビーの種族: HDT はメモリから読んでいた。Power.log には無いので、ショップに並んだミニオンの種族の上位 5 つ（LobbyMinionTypes）
+        var types = _lobbyTypes.Result(out var tie);
+        if (types != null)
+        {
+            log.Game.MinionTypes = types;
+            if (tie) Note($"minion_types: the 5th and 6th types were seen equally often in the shop ({_lobbyTypes.Describe()})");
+        }
+        else if (log.Turns.Count > 0)
+        {
+            Note($"minion_types unavailable: fewer than {LobbyMinionTypes.LobbySize} minion types were seen in the shop ({_lobbyTypes.Describe()})");
+        }
     }
 
     // ------------------------------------------------------------------ events.jsonl / notes
