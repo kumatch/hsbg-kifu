@@ -1,11 +1,11 @@
 # hsbg-kifu
 
-Hearthstone Battlegrounds の 1 ゲームごとの記録を、Hearthstone の Power.log から作ってローカルの JSON に保存する常駐アプリです（開発中）。
+Hearthstone Battlegrounds の 1 ゲームごとの記録を、Hearthstone の Power.log から作ってローカルの JSON に保存する常駐アプリです。
 
-HDT（Hearthstone Deck Tracker）が 2026-11-30 にプラグインを廃止するため、HDT プラグイン hdt-plugin-hsbg-kansousen の後継として作ります。
-HDT とは別に起動して、Hearthstone のログファイルを読むだけです。
-記録は分析ツール hsbg-kansousen で読めます。名前のとおり、このアプリが棋譜（kifu）を取り、hsbg-kansousen がそれを使って感想戦をする、という関係です。
-棋譜は hsbg-kansousen 専用ではなく、JSON なのでほかのツールからも読めます。
+同等の機能を提供する Hearthstone Deck Tracker (HDT) のプラグイン hdt-plugin-hsbg-kansousen を提供してましたが、2026/11/30 に HDT プラグインが廃止される方針が発表されたたため、独立したアプリとして用意しています。
+
+記録は分析ツール [hsbg-kansousen](https://github.com/kumatch/hsbg-kansousen) で読めます。
+また記録データは hsbg-kansousen 専用ではありません。下記に記載の JSON 仕様を確認ください。
 
 - 記録の形（ログの仕様）: [docs/log-schema.md](docs/log-schema.md)、[schema/game-log.schema.json](schema/game-log.schema.json)
 - 開発の手順（ソースからのビルド、コマンドライン）: [docs/development.md](docs/development.md)
