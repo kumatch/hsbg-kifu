@@ -52,8 +52,11 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 
 - Power.log には同じ内容が 2 回出る: `GameState.DebugPrintPower`（サーバーから受け取った時点、約 68 万行）と
   `PowerTaskList.DebugPrintPower`（演出に合わせて処理した時点、ほぼ同数）。**M2 で `GameState` を使うと決めた**:
-  HDT が持っていた Power.log の写し（`Core.Game.PowerLog`）も `GameState.` の行だけで（§5「M1 の実装での測定」）、プラグインの記録と同じ条件で比べられる。
-  サーバー側の行なので、落ちたときにも先まで残る
+  2 系統は同じ内容を同じ順に書いたもので、違うのは書かれる時刻だけ。行ごとに状態を当てはめるので、出来事の時点の状態は同じになる。
+  サーバー側の行なので、落ちたときにも先まで残り、遅れも少ない。
+  **訂正（2026-11-21、M3）**: M2 では「HDT と同じ GameState」と書いたが、HDT が Entity を更新するのは `PowerTaskList` の行
+  （`LogReader/LogWatcherManager.cs` の `OnNewLines`。`GameState.` の行は Power.log の写し `Core.Game.PowerLog`・選択肢・ゲーム情報にだけ使う）。
+  HDT の出来事やプラグインの 100 ms ごとの観測は、演出の進行（PowerTaskList）の時刻に合わせて起きていた。この違いが効くところは §3.2
 - HDT で「同じダメージが 2 回来る」のは 2 系統のせいではなかった。`GameState` の中で PREDAMAGE が 1 回の攻撃につき「値 → 0 → 値 → 0」と 2 回立つ（§3.1）
 - 自分の選択肢（`DebugPrintEntityChoices`）には発見（`ChoiceType=GENERAL`）も出る。以前「取れない」とした発見の選択肢は、自分の分なら取れる見込み（**要検証**）
 - プレイヤー名（BattleTag）は Power.log に出る。照合に使うだけで、記録の JSON には書かない
@@ -103,6 +106,56 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
   その power.log.gz はゲームの途中（13:59:12）で切れていて終わりの行が無い（プラグインの写しの欠け。中継ログでは起きない）
 - 再接続（10/17 17:45）: 2 回目の CREATE_GAME を「途中から（TURN 23）」と判定し、473 Entity を当てはめ、全項目が一致
 - 名前で指されて決められなかった行: 0。知らないタグ名: 0
+
+### 3.2 M3 の実装で分かったこと（2026-11-21、`src/HsbgKifu.Core/Capture/`）
+
+**観測の区切り**（プラグインの OnUpdate の約 100 ms ごとの差分の観測の代わり。`PowerGameListener.OnBatchEnd`）
+- GameState の行は、サーバーから届いた 1 回分のまとまり（`DebugPrintPowerList() - Count=N` で始まる）で届く。プレイヤーの操作 1 回分がおおむね 1 まとまり。
+  ターン開始のショップの入れ替えは、ターンの切り替わりの後の大きなまとまり（Count=370 など）の中の、いくつものブロックで作られる。戦闘は 1 回のまとまりで全部届く
+- ショップの観測はまとまりの終わりで、戦闘中の強化と神祇はブロックの終わり（BLOCK_END）でも読む。ブロックの終わりごとにショップを観測すると、
+  1 回の購入でゴールドのタグが片方だけ変わった状態を見て、ゴールド獲得を多く数える（22 ゲームで 101 ターン）
+- ショップの終わり（偶数の TURN）と同じまとまりの中の行動（終わる直前に使った呪文など）は、ショップを閉じる前にもう 1 回観測して拾う
+
+**HDT の Entity.CardId**（`Entity.OriginalCardId`。プラグインは場所によって CardId と Info.LatestCardId を使い分けていた）
+- HDT の `PowerHandler` は、SHOW_ENTITY / CHANGE_ENTITY で `CardId` を書き換えるのは、まだ無いか、その時点で `BACON_IS_MAGIC_ITEM_DISCOVER`・`BACON_TRINKET`・
+  `BACON_HERO_CAN_BE_DRAFTED`・`BACON_SKIN` のどれかを持つか、`CREATED_BY_` で始まるときだけ。`Info.LatestCardId` はいつも書き換える
+- 例: トリンケットの枠（`BG30_Trinket_1st`、`BACON_IS_MAGIC_ITEM_DISCOVER`）は選んだトリンケットに CHANGE_ENTITY される。無料リロールのヒーローも CHANGE_ENTITY
+
+**ほかに合わせたこと**
+- 種族の名前: 新しい HearthDb では値 20 に `BEAST` と `PET` がある。.NET の ToString は PET を返すので、宣言順で最初の名前（プラグインと同じ "beast"）を使う
+- トリンケット: HDT の `Player.Trinkets` は CARDTYPE ではなく `BACON_TRINKET` を持つ Entity（ターン 1 からある枠は持たない）
+- ヒーローの候補: HDT の `BattlegroundsHeroPickState` の代わりに、ヒーロー選択（MULLIGAN）の選択肢の Entity を ZONE_POSITION の順に。無料リロールは同じ Entity が CHANGE_ENTITY される
+
+**ショップの行動の回数**（`kifu-dev verify-json` の正解との比較。正解 = 自分がショップ中に出した PLAY ブロック）
+- 購入（`TB_BaconShop_DragBuy` / `_Spell`。対象のミニオンが `Target=` に入る）・売却（`TB_BaconShop_DragSell`。同）・リロール（`TB_BaconShop_8p_Reroll_Button`）・
+  ティアアップ（`TB_BaconShopTechUp0N_Button`）・悪夢の発見（`BG36_Button_DarkGift`）・ヒーローパワー（ヒーローパワーの Entity）・スペル（手札のスペル）は、
+  プレイヤーの操作そのものとして PLAY ブロックに残る
+- 差分から推定する数え方（プラグイン）は外れがある。プラグインの power.log.gz の 2,848 ターンで、購入 207・売却 494・リロール 276・スペル 438・悪夢の発見 51・
+  ヒーローパワー 125 ターンが正解と違った（3 枚目を買ってすぐトリプルになった購入、リロールでショップが一度空になった、1 ターンに何度も使えるヒーローパワーなど）
+- **hsbg-kifu は購入・売却・リロール・スペル・悪夢の発見・ヒーローパワーを PLAY ブロックから数える**（2,848 ターンすべて正解と一致）。
+  ティアアップ・発見・トリプル・プレイ・ゴールド獲得・ショップの並びは、プラグインと同じく差分から推定する（ShopActionTracker）
+- ゴールド獲得（売却以外で増えたゴールド）は正解が無い。プラグインとは 22 ゲームで 28 ターン違う（どちらも推定）
+
+**ショップの並び（turns[].shop_offers）**
+- プラグインは演出の途中を覗いていたので、ターン開始時のショップを、カードが揃う前・酒場のバフが乗る前（3/3 など）で記録していた（どこで覗けるかは演出の速さ次第）。
+  hsbg-kifu はまとまりの終わりで記録するので、ターン開始の効果で足されたカードとバフを含めた、実際に並んだ状態になる（毎回同じ結果）。
+  そのため shop_offers の中身・攻撃力と体力・trigger（refill / reroll / added）はプラグインの記録と違うことがある
+
+**プラグインの記録との一致**（`kifu-dev verify-json`。比べない項目: ゲーム ID、generator、開始・終了の時刻と所要時間、地域、ロビーの種族、MMR、Bob's Buddy、notes）
+- 中継ログ 22 ゲーム（109,678 項目）: 違うのは上のショップの並びとゴールド獲得だけ。盤面・手札・ロビー・戦闘・神祇・強化・相手・トリンケット・ヒーローの候補はすべて一致
+- プラグインの power.log.gz 236 ゲーム: プラグインの記録にある種類の項目だけ比べると、ほかに違うのは、古い版のプラグインの書き方（0.9.4 より前は盤面のカードが元のカード）、
+  今の CardDefs で過去のゲームを作り直したための種族の違い（パッチでカードの種族が変わる）、プラグインの取りこぼし（相手の盤面が無い 1 ゲームなど）
+- hsbg-kansousen の `hsbg validate` で 22 ゲームすべて JSON Schema に合格し、`hsbg summarize` も作れた
+
+**時刻と generator**
+- started_at = CREATE_GAME の行の時刻（HDT の StartTime より 1 秒ほど遅い）。ended_at = 中継ログの最後（画面側の COMPLETE。HDT の OnGameEnd と同じころ）
+- events.jsonl の `t` は Power.log の行の時刻（プラグインは HDT が処理した時刻）
+- generator: `plugin` = "hsbg-kifu"、`plugin_version` = hsbg-kifu の版、`hdt_version` = null、`hearthstone_build` = Power.log の `BuildNumber`（プラグインは HDT の HearthstoneBuild で、別の番号）
+- game_id = 中継ログ（ログフォルダ名 + CREATE_GAME の時刻）から作る UUID。作り直しても同じ ID・同じファイル名
+
+**メモリ**（`hsbg-kifu watch`）
+- 起動時に 7 ゲームを回収して記録を作る間の最大 135 MB。記録を作り終えるたびに .NET にメモリを回収させて OS に返すと、何もしていない間は 71 MB（専用メモリ 29 MB）。
+  返さないと 142 MB（同 100 MB）のまま。カードの情報（CardDefs.base.xml、35,000 枚）の読み込みが最大の大半
 
 ## 4. HDT に頼っていた値（確認済み）
 
