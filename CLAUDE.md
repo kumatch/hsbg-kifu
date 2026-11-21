@@ -14,11 +14,12 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 - `docs/log-schema.md` — ログの仕様（これが hsbg-kansousen との契約。変えたら `schema_version` を上げる）
 - `docs/research.md` — Power.log と HDT のファイルについて確認した事実
 - `docs/architecture.md` — 設計
+- `docs/development.md` — ビルドとコマンドライン（Cli）の使い方。README は利用者向けに保ち、開発者向けの手順はこちらに書く
 
 ## 環境の前提
 
 - OS: Windows 10/11。WSL は使わない。Claude Code は PowerShell から起動される。手順は PowerShell / Windows パスで書く
-- .NET 8（常駐アプリは WinForms）。ビルドは `dotnet build`
+- .NET 10（`global.json`。常駐アプリは WinForms）。ビルドは `dotnet build`。配布は `.\scripts\package.ps1`（docs/release.md）
 - Hearthstone のログ: HDT の `%APPDATA%\HearthstoneDeckTracker\config.xml` の `HearthstoneDirectory` 配下の `Logs\Hearthstone_<日時>\Power.log`
   （終わった起動分は `Power_old.log`）。出力の設定は `%LOCALAPPDATA%\Blizzard\Hearthstone\log.config`
 - HDT のデータ: `%APPDATA%\HearthstoneDeckTracker\`（`BgsLastGames.xml`、`CardDefs\`）。**読むだけ**
@@ -58,10 +59,11 @@ hsbg-kansousen の CI も、このリポジトリの main の schema / `docs/log
 - `python scripts\check_cli_sync.py --strict`（hsbg-kansousen のコピーが最新か。`schema_version` の改訂履歴があるか。hsbg-kansousen が無ければ `--strict` を外す）
 - 公開前: `python ..\hdt-plugin-hsbg-kansousen\scripts\check_private.py README.md CLAUDE.md TASKS.md docs spike scripts src tests tools`（個人の情報が入っていないか）
 - パーサを変えたら、実データで答え合わせをする（どちらも違いの一覧が出る。今の結果は docs/research.md §3.1）:
-  `.\tools\HsbgKifu.DevTools\bin\Release\net8.0\kifu-dev.exe verify-parse --slices <中継ログの .slices> --plugin "$env:USERPROFILE\Documents\HSBG-Logs"`、
+  `.\tools\HsbgKifu.DevTools\bin\Release\net10.0\kifu-dev.exe verify-parse --slices <中継ログの .slices> --plugin "$env:USERPROFILE\Documents\HSBG-Logs"`、
   `--slices plugin` ならプラグインの power.log.gz（236 ゲーム）で比べる
 - 実データで試すときは、出力先をスクラッチ（一時フォルダ）にし、終わったら消す（中継ログには BattleTag が入る）。
   実データの行を表示するときは BattleTag を伏せる（`Entity=<名前>`・`PlayerName=`・`Player=`）
+- 配布物を変えたら `.\scripts\package.ps1` が通ること（手元のパスが exe に残っていないかも確かめる）
 - 実機確認は人間に依頼する。手順を PowerShell / GUI 操作として書いて止まる
 
 ## 構成
@@ -77,12 +79,15 @@ src/HsbgKifu.Core/
 ├── Cards/        # CardDb（HDT の CardDefs.base.xml）
 ├── Logic/ Model/ Output/  # プラグインから移した純粋ロジック・DTO・書き出し（HDT 非依存。プラグインのテストも tests/ に移した）
 ├── ThirdParty/HearthDb/   # HearthDb の Enums.cs / Utils.cs の写し（MIT。THIRD_PARTY_NOTICES.md。手で直さない）
-└── Diagnostics/  # IKifuLog
-src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice / rebuild）。常駐アプリ（M5）ができるまでの確認用
+├── Diagnostics/  # IKifuLog
+├── Config/       # KifuConfig（%APPDATA%\hsbg-kifu\config.json）, OutputDirectory, LogConfigCheck
+└── KifuService.cs  # 監視と記録をまとめて動かす（常駐アプリと Cli の watch が使う）
+src/HsbgKifu.App/ # HsbgKifu.exe（配布する常駐アプリ。WinForms の NotifyIcon）: TrayContext, SettingsForm, Startup（HKCU の Run）
+src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice / rebuild。配布しない開発・確認用。docs/development.md）
 docs/log-schema.md, schema/game-log.schema.json  # ログの仕様の正本（hsbg-kansousen が写しを持つ）
 tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs などで短いログを組み立てる
 tools/HsbgKifu.DevTools/  # kifu-dev.exe（配布しない）: verify-parse / verify-json（プラグインの記録との答え合わせ）
-scripts/          # backup-powerlogs.ps1（M0）, check_cli_sync.py（hsbg-kansousen の写しとの照合）
+scripts/          # backup-powerlogs.ps1（M0）, check_cli_sync.py（hsbg-kansousen の写しとの照合）, package.ps1 と dist-readme.txt（配布の zip）
 spike/            # 試作（製品のコードではない）
 ```
 
@@ -93,6 +98,10 @@ spike/            # 試作（製品のコードではない）
 
 ## やらないこと
 
+README の「hsbg-kifu がしないこと」（読む・書くファイルの表を含む）は、利用者への約束として目立つ場所に書いている。
+読む・書くファイルや使う API を増やすときは、その節と合っているかを確かめ、合わなくなるなら実装の前にユーザーと相談する。
+
+- Hearthstone の操作の自動化（キー入力・マウスの操作を送る）、対戦中の画面への表示や助言
 - Hearthstone のメモリ読み取り、パケット解析、ゲームクライアントの改変（利用規約違反のリスク）
 - 外部サーバへの送信（ローカルのファイルにだけ書く）
 - BattleTag・プレイヤー名・アカウント ID（`BgsLastGames.xml` の `Player`）・接続先アドレス・`spectateKey` を記録の JSON に書くこと
