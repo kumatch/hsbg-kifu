@@ -29,7 +29,7 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
 | Model / Output | DTO と書き出し | M3 でプラグインの `Model/`・`Output/` を移した。Newtonsoft.Json は NuGet で同梱する（HDT 同梱の版に頼れなくなる） |
 | Cards | カードの情報（名前・dbfId・ティア・種族・攻撃力・体力） | M3。HDT が更新し続ける `CardDefs.base.xml` を読む（`CardDb`） |
 | Meta | MMR（`BgsLastGames.xml`。`Capture/BgsLastGames`）、ゲーム番号（`GameNetLogger.log`）、ロビーの種族（`Capture/LobbyMinionTypes`） | ゲーム番号は M1。MMR・ロビーの種族・再接続のつなぎは M4 |
-| App | タスクトレイ、設定画面、ログ出力、自動起動 | プラグインの `UI/`・`Config/`・`Diagnostics/` を移す |
+| App | タスクトレイ、設定画面、動作記録、サインイン時の起動、log.config の確認 | M5。`src/HsbgKifu.App`（WinForms）。設定は Core の `Config/`（`KifuConfig`・`OutputDirectory`・`LogConfigCheck`）、組み立ては Core の `KifuService`（CLI の watch と共通） |
 
 ## 状態と出来事（Parse。M2 で実装）
 

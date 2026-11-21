@@ -40,7 +40,21 @@ Hearthstone のログフォルダ（`<Hearthstone のフォルダ>\Logs\Hearthst
 - 退避したファイルには、同じロビーの全員の BattleTag が入ります。人に渡さないでください
 - 実行ポリシーで止まるときは `powershell -ExecutionPolicy Bypass -File .\scripts\backup-powerlogs.ps1` で実行します
 
-## 開発中の使い方（M4: 記録の JSON まで。常駐アプリは M5）
+## 常駐アプリ（M5、開発中）
+
+```powershell
+dotnet build HsbgKifu.sln -c Release
+& ".\src\HsbgKifu.Appin\Release
+et8.0-windows\HsbgKifu.exe"
+```
+
+- タスクトレイに濃い青と金の「BG」のアイコンが出ます。右クリックのメニューで、記録のフォルダと動作記録を開いたり、設定を変えたりできます。ダブルクリックで記録のフォルダを開きます
+- 設定は `%APPDATA%\hsbg-kifu\config.json`（メニューの「設定...」で変えられます）。動作記録は `%APPDATA%\hsbg-kifu\kifu.log`
+- 設定画面の「Windows へのサインイン時に起動する」をチェックすると、サインインのたびに起動します（既定は OFF）
+- 起動時に Hearthstone のログの設定（log.config）を確かめ、Power.log が出ない設定なら通知します
+- 二重には起動しません。終了はメニューの「終了」から（後の MMR を待っている記録は、その時点の値で書きます）
+
+## 開発中の使い方（コマンドライン）
 
 Power.log をゲームごとの中継ログ（`.slices\` の `.power.log.gz` と `.slice.json`）に切り出し、ゲームが終わるたびに記録（棋譜）の JSON を作ります。
 記録の形はプラグインと同じで、hsbg-kansousen でそのまま読めます。MMR は HDT の `BgsLastGames.xml` から読み（`watch` はゲームの後に最長 60 秒待って書き直します）、
