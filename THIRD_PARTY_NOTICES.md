@@ -2,7 +2,7 @@
 
 ## HearthDb
 
-`src/HsbgKifu.Core/ThirdParty/HearthDb/Enums.cs` is copied from [HearthSim/HearthDb](https://github.com/HearthSim/HearthDb).
+`src/HsbgKifu.Core/ThirdParty/HearthDb/Enums.cs` and `Utils.cs` are copied from [HearthSim/HearthDb](https://github.com/HearthSim/HearthDb).
 
 ```
 The MIT License (MIT)
