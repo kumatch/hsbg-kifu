@@ -15,6 +15,7 @@ public sealed class PowerLogParser
     private const string GameSource = "GameState.DebugPrintGame() - ";
     private const string ChoicesSource = "GameState.DebugPrintEntityChoices() - ";
     private const string ChosenSource = "GameState.DebugPrintEntitiesChosen() - ";
+    private const string PowerListSource = "GameState.DebugPrintPowerList() - ";
 
     private static readonly Regex BracketId = new(@" id=(\d+) zone=", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
@@ -60,7 +61,13 @@ public sealed class PowerLogParser
         }
         else if (src.StartsWith(GameSource, StringComparison.Ordinal)) GameInfo(src[GameSource.Length..].Trim().ToString());
         else if (src.StartsWith(ChoicesSource, StringComparison.Ordinal)) Choices(src[ChoicesSource.Length..].ToString(), time);
-        else if (src.StartsWith(ChosenSource, StringComparison.Ordinal)) { FlushChoice(); }
+        else if (src.StartsWith(ChosenSource, StringComparison.Ordinal)) Chosen(src[ChosenSource.Length..].TrimStart().ToString());
+        else if (src.StartsWith(PowerListSource, StringComparison.Ordinal))
+        {
+            // 次のまとまりが始まる = 前のまとまりの終わり
+            FlushEntity();
+            if (Game != null) Raise(l => l.OnBatchEnd(Game, packetEnd: true));
+        }
     }
 
     /// <summary>入力の終わり（書き出しの前に呼ぶ）。保留している出来事を出す。</summary>
@@ -69,6 +76,7 @@ public sealed class PowerLogParser
         FlushEntity();
         FlushChoice();
         EndCreateGame();
+        if (Game != null) Raise(l => l.OnBatchEnd(Game, packetEnd: true));
     }
 
     // ---------------------------------------------------------------- DebugPrintPower
@@ -140,7 +148,7 @@ public sealed class PowerLogParser
             var kind = t[0] == 'S' ? TagChangeKind.Show : TagChangeKind.Change;
             var e = Resolve(Between(t, "Updating Entity=", " CardID="));
             if (e == null) return;
-            SetCardId(e, After(t, " CardID="));
+            SetCardId(e, After(t, " CardID="), update: true);
             Begin(e, kind);
             return;
         }
@@ -162,13 +170,16 @@ public sealed class PowerLogParser
             _blockDepth++;
             var blockType = Between(t, "BlockType=", " ") ?? "";
             var source = Resolve(Between(t, " Entity=", " EffectCardId="));
-            Raise(l => l.OnBlockStart(Game, blockType, source));
+            var targetText = Between(t, " Target=", " SubOption=");
+            var target = targetText is null or "0" ? null : Resolve(targetText);
+            Raise(l => l.OnBlockStart(Game, blockType, source, target));
             return;
         }
         if (t == "BLOCK_END")
         {
             if (_blockDepth > 0) _blockDepth--;
             Raise(l => l.OnBlockEnd(Game));
+            Raise(l => l.OnBatchEnd(Game, packetEnd: false));
         }
         if (t.StartsWith("META_DATA - Meta=DAMAGE ", StringComparison.Ordinal))
         {
@@ -243,9 +254,24 @@ public sealed class PowerLogParser
         else if (tag == (int)GameTag.PREDAMAGE && value > 0) Raise(l => l.OnPredamage(game, e, value));
     }
 
-    private static void SetCardId(Entity e, string? cardId)
+    /// <summary>
+    /// CardID を当てはめる。<see cref="Entity.CardId"/>（今のカード）はいつも書き換える。<see cref="Entity.OriginalCardId"/>（HDT の Entity.CardId）は
+    /// HDT の PowerHandler と同じ規則: FULL_ENTITY では書き、SHOW_ENTITY / CHANGE_ENTITY では、まだ無いか、その時点で
+    /// BACON_IS_MAGIC_ITEM_DISCOVER（トリンケットの枠など）/ BACON_TRINKET / BACON_HERO_CAN_BE_DRAFTED / BACON_SKIN（リロール中のヒーロー）を持つか、
+    /// <c>CREATED_BY_</c> で始まるときだけ書き換える（ゴールデンになる・変身するなどでは元のカードのまま）。
+    /// </summary>
+    private static void SetCardId(Entity e, string? cardId, bool update = false)
     {
-        if (!string.IsNullOrEmpty(cardId)) e.CardId = cardId;
+        if (string.IsNullOrEmpty(cardId)) return;
+        e.CardId = cardId;
+        if (!update
+            || string.IsNullOrEmpty(e.OriginalCardId)
+            || e.HasTag(GameTag.BACON_IS_MAGIC_ITEM_DISCOVER)
+            || e.HasTag(GameTag.BACON_TRINKET)
+            || e.HasTag(GameTag.BACON_HERO_CAN_BE_DRAFTED)
+            || e.HasTag(GameTag.BACON_SKIN)
+            || e.OriginalCardId.StartsWith("CREATED_BY_", StringComparison.Ordinal))
+            e.OriginalCardId = cardId;
     }
 
     // ---------------------------------------------------------------- 名前の解決
@@ -360,7 +386,21 @@ public sealed class PowerLogParser
         if (c == null || Game == null) return;
         var choice = new EntityChoice(c.Id, c.ChoiceType, c.EntityIds, c.Time);
         Game.Choices.Add(choice);
+        Game.PendingChoice = choice;
         Raise(l => l.OnChoices(Game, choice));
+    }
+
+    private void Chosen(string body)
+    {
+        // id=1 Player=<名前> EntitiesCount=1（続く Entities[i] は読まない）
+        FlushChoice();
+        if (Game == null || !body.StartsWith("id=", StringComparison.Ordinal)) return;
+        var id = IntAfter(body, "id=");
+        if (Game.PendingChoice is { } pending && pending.Id == id)
+        {
+            Game.PendingChoice = null;
+            Raise(l => l.OnChoiceMade(Game, pending));
+        }
     }
 
     private sealed class EntityChoiceBuilder(int id, string choiceType, DateTime time)

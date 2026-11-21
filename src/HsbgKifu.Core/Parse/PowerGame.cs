@@ -45,6 +45,9 @@ public sealed class PowerGame
 
     public List<EntityChoice> Choices { get; } = new();
 
+    /// <summary>選んでいる途中の選択肢（出てから DebugPrintEntitiesChosen まで）。HDT の <c>Player.OfferedEntityIds</c> に当たる。</summary>
+    public EntityChoice? PendingChoice { get; internal set; }
+
     public IEnumerable<Entity> PlayerEntities =>
         PlayerEntityIdByPlayerId.Values.Select(id => Entities.TryGetValue(id, out var e) ? e : null).OfType<Entity>();
 

@@ -62,7 +62,23 @@ public abstract class PowerGameListener
     /// <summary>選択肢が出た（ヒーロー選択は ChoiceType=MULLIGAN）。</summary>
     public virtual void OnChoices(PowerGame game, EntityChoice choice) { }
 
-    public virtual void OnBlockStart(PowerGame game, string blockType, Entity? source) { }
+    /// <summary>選択肢を選び終えた（DebugPrintEntitiesChosen）。</summary>
+    public virtual void OnChoiceMade(PowerGame game, EntityChoice choice) { }
+
+    /// <summary>
+    /// 観測の区切り。プラグインが HDT の OnUpdate（約 100 ms ごと）でしていた差分の観測をここでする。行の途中の、タグが揃っていない状態では呼ばない。
+    /// <paramref name="packetEnd"/> = true: サーバーから届いた 1 回分の行のまとまり（DebugPrintPowerList）の終わり。プレイヤーの操作 1 回分に当たる
+    /// （ショップの行動はこの区切りで数える。途中で数えると、1 回の購入でゴールドのタグが片方だけ変わった状態を見てしまう）。
+    /// false: まとまりの中の各ブロックの終わり（BLOCK_END）。戦闘は 1 回のまとまりで全部届くので、戦闘中の強化や神祇はこの区切りでも読む
+    /// （HDT は演出に合わせて Entity を更新していたので、戦闘の途中の値を見ていた）。
+    /// </summary>
+    public virtual void OnBatchEnd(PowerGame game, bool packetEnd) { }
+
+    /// <summary>
+    /// BLOCK_START。<paramref name="target"/> は <c>Target=</c> の Entity（無ければ null）。
+    /// ショップで自分が出す PLAY ブロック（購入・売却・リロールのボタン、手札のカード）はプレイヤーの操作そのもので、購入・売却では対象のミニオンが Target に入る。
+    /// </summary>
+    public virtual void OnBlockStart(PowerGame game, string blockType, Entity? source, Entity? target) { }
     public virtual void OnBlockEnd(PowerGame game) { }
 
     /// <summary>GameEntity の STATE が COMPLETE になった（HDT の OnGameEnd）。</summary>

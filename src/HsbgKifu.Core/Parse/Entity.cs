@@ -14,8 +14,17 @@ public sealed class Entity
 
     public int Id { get; }
 
-    /// <summary>見えていれば CardID（<c>BG36_849</c> など）。相手の手札など見えないものは null。</summary>
+    /// <summary>
+    /// 今の CardID（<c>BG36_849</c> など。CHANGE_ENTITY で別のカードになれば、そのカード）。相手の手札など見えないものは null。
+    /// HDT の <c>Entity.Info.LatestCardId ?? Entity.CardId</c> に当たる。
+    /// </summary>
     public string? CardId { get; internal set; }
+
+    /// <summary>
+    /// HDT の <c>Entity.CardId</c>。FULL_ENTITY で見えた CardID で、SHOW_ENTITY / CHANGE_ENTITY では HDT と同じ条件のときだけ書き換わる
+    /// （トリンケットの枠が選んだトリンケットになる、リロール中のヒーローなど。ゴールデンになる・変身するなどでは元のカードのまま）。
+    /// </summary>
+    public string? OriginalCardId { get; internal set; }
 
     public IReadOnlyDictionary<int, int> Tags => _tags;
 
