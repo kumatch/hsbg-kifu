@@ -5,7 +5,7 @@
 ## 新しいセッションの始め方（Claude Code 向け）
 
 1. `CLAUDE.md` → この `TASKS.md` → docs/research.md（調査）→ docs/architecture.md（設計）の順に読む
-2. 移すもの・参考にするものは隣の `..\hdt-plugin-hsbg-kansousen`（以下「プラグイン」）にある。ログの仕様はプラグインの docs/log-schema.md が正本（M6 でこちらへ移す）
+2. 移すもの・参考にするものは隣の `..\hdt-plugin-hsbg-kansousen`（以下「プラグイン」）にある。ログの仕様は 2026-11-21 にこちらへ移した（docs/log-schema.md が正本）
 3. 作業の区切りで、変更したファイルと推奨するコミットメッセージを報告して止まる。コミットは許可を得てから
 
 ## 現在の状態
@@ -15,7 +15,7 @@
 - 2026-11-20: M1（Power.log を読み続けてゲームごとの中継ログに切り出す。実機確認済み）
 - 2026-11-20: M2（Power.log から状態と出来事を作る）。プラグインの記録 236 ゲームと答え合わせ済み
 - 2026-11-21: M3（中継ログから記録の JSON を作る。常駐の監視と作り直しのコマンドにつないだ。実機確認済み）
-- 2026-11-21: M4（MMR、ロビーの種族、再接続のつなぎ。実機確認済み）。M5 の常駐アプリ（実機確認済み）。次は M3.5 か M6
+- 2026-11-21: M4（MMR、ロビーの種族、再接続のつなぎ。実機確認済み）。M5 の常駐アプリ（実機確認済み）、M6 の仕様の正本の移動。次は M7
 - 期限: HDT は 2026-11-30 にプラグインを止める。それまではプラグインで記録を続け、その記録を答え合わせに使う
 
 ## タスク
@@ -137,12 +137,22 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
 - [ ] Hearthstone をゲームの途中で終了したときの扱いの確認（次の実機確認のついでに）
 
 ### M6. ログの仕様と hsbg-kansousen
-- [ ] ログの仕様（`docs/log-schema.md`、`schema/game-log.schema.json`）の正本をプラグインからこちらへ移す。
-      何で作ったかを示すキー（例: `recorder`）を足すなら `schema_version` を上げる
-- [ ] hsbg-kansousen の参照先（コピー元・`check_cli_sync.py`・CI・CLAUDE.md・README の「プラグインと hsbg の版」）をこのリポジトリに変える
+- [x] ログの仕様（`docs/log-schema.md`、`schema/game-log.schema.json`）の正本をプラグインからこちらへ移した（2026-11-21）。
+      何で作ったかは既存の `generator.plugin`（"hsbg-kifu"）で分かるので、キーは足さず schema 1.9.0 のまま。
+      仕様に「記録を書いたアプリ」の節を足し、プラグインの記録との違い（game_id・shop_offers・行動の回数・ロビーの種族・MMR の出どころ）を書いた。
+      `scripts/check_cli_sync.py` をプラグインから移し、CLAUDE.md に「ログの形を変えたとき」の手順を移した
+- [x] hsbg-kansousen の参照先をこのリポジトリに変えた: 仕様の写し、CI の `schema` ジョブの比較先（`kumatch/hsbg-kifu` の main。リモートが無い間は警告だけ）、
+      CLAUDE.md・`docs/release.md`・README の「記録アプリと hsbg の版」、分析の注意（`log-caveats.md` に hsbg-kifu の記録の違い）、
+      「新しいプラグイン」の表示を「新しい記録アプリ」に
+- [x] プラグインのリポジトリ: 仕様は schema 1.9.0 時点の写しとして凍結（先頭に注記）、`check_cli_sync.py` を消し、CLAUDE.md・docs・CI を合わせた
 
 ### M7. 配布と切り替え
 - [ ] 配布の形（framework-dependent か self-contained か、zip かインストーラか）を決めて、リリースの手順を docs に書く
+- [ ] GitHub にリポジトリを作って push する（ユーザーに頼まれてから）。hsbg-kansousen の CI の `schema` ジョブはそれまで比較できず警告だけ
+- [ ] hsbg-kansousen の README の「はじめかた」（プラグインを入れる手順）を hsbg-kifu に書き換える
+- [ ] 切り替えの手順を README に書く: プラグインを外してから hsbg-kifu の出力先を `Documents\HSBG-Logs` にする。
+      両方が同じフォルダに書くと、hsbg-kifu が先に書いた記録の後にプラグインも書き、同じゲームが 2 つになる
+      （hsbg-kifu の二重記録の防止は、すでにある記録を見て自分が書かないだけ）
 - [ ] 最初のリリース。プラグインの README に「2026-11-30 以降の HDT では動かない。記録アプリへ」と書き、プラグインのリポジトリは保守を止める
 
 ## 判明したこと・決めたこと

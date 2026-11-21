@@ -7,6 +7,7 @@ HDT とは別に起動して、Hearthstone のログファイルを読むだけ�
 記録は分析ツール hsbg-kansousen で読めます。名前のとおり、このアプリが棋譜（kifu）を取り、hsbg-kansousen がそれを使って感想戦をする、という関係です。
 棋譜は hsbg-kansousen 専用ではなく、JSON なのでほかのツールからも読めます。
 
+- 記録の形（ログの仕様）: [docs/log-schema.md](docs/log-schema.md)、[schema/game-log.schema.json](schema/game-log.schema.json)
 - 調査: [docs/research.md](docs/research.md)
 - 設計（案）: [docs/architecture.md](docs/architecture.md)
 - 進み具合: [TASKS.md](TASKS.md)

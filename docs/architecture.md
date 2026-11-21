@@ -13,10 +13,10 @@ HDT ── BgsLastGames.xml（MMR）、CardDefs（カードのデータ）──
                                                              hsbg-kansousen（分析）
 ```
 
-- 記録アプリは .NET 8 の WPF（タスクトレイに常駐）。Hearthstone と HDT のファイルを**読むだけ**。
+- 記録アプリは .NET 8 の WinForms（タスクトレイに常駐。M5）。Hearthstone と HDT のファイルを**読むだけ**。
   メモリ読み取り・パケット解析・ゲームの改変・外部への送信はしない
 - ① は解釈しない生のデータで、正本。② は ① から作る。解析を直したら、① から ② を作り直せる（作り直すコマンドを付ける）
-- ② の形は hdt-plugin-hsbg-kansousen の docs/log-schema.md を引き継ぐ。hsbg-kansousen は今のまま読める
+- ② の形は hdt-plugin-hsbg-kansousen の docs/log-schema.md を引き継いだ（M6 で正本をこのリポジトリの docs/log-schema.md に移した）。hsbg-kansousen は今のまま読める
 
 ## 層
 
