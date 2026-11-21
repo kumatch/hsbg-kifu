@@ -33,18 +33,14 @@ public static class Program
         {
             case "watch":
             {
-                var hsDir = LogFiles.FindHearthstoneDirectory(opts.GetValueOrDefault("hs"));
-                var logsDir = Path.Combine(hsDir, "Logs");
-                using var cancel = new CancellationTokenSource();
-                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
-                var watcher = new KifuWatcher(new KifuWatcherOptions { LogsDirectory = logsDir, SlicesRoot = slicesRoot }, log);
-                // 後の MMR は HDT がゲームの後に BgsLastGames.xml へ書くので、最長 60 秒待って記録を書き直す
-                using var writer = new KifuWriterService(outDir, log: log, mmrWait: TimeSpan.FromSeconds(60));
-                writer.UseStore(watcher.Store);
-                watcher.Store.SliceFinished += (meta, gz) => writer.Process(meta, gz);
-                writer.CatchUp(watcher.Store); // 中継ログはあるのに記録が無いゲーム（記録を書く前に止まったなど）
-                log.Info($"記録の置き場: {outDir}（中継ログは {slicesRoot}。Ctrl+C で止めます）");
-                await watcher.RunAsync(cancel.Token);
+                var config = new Config.KifuConfig { OutputDir = outDir, HearthstoneDir = opts.GetValueOrDefault("hs") };
+                await using var service = new KifuService(config, log);
+                using var stop = new SemaphoreSlim(0);
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Release(); };
+                service.Start();
+                log.Info("Ctrl+C で止めます");
+                await stop.WaitAsync();
+                await service.StopAsync();
                 return 0;
             }
             case "slice":

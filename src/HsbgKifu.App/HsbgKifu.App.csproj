@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 常駐アプリ（タスクトレイ）。画面は WinForms だけで作る（トレイのアイコンは WinForms の NotifyIcon。設定画面だけなので WPF は使わない） -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>HsbgKifu.App</RootNamespace>
+    <AssemblyName>HsbgKifu</AssemblyName>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- 読み捨てる行の文字列が多いので、並行 GC を止めて早めに回収する（docs/research.md §5） -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HsbgKifu.Core\HsbgKifu.Core.csproj" />
+  </ItemGroup>
+</Project>

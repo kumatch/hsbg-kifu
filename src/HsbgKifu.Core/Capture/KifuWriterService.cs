@@ -85,6 +85,9 @@ public sealed class KifuWriterService : IDisposable
 
     public string OutRoot => _outRoot;
 
+    /// <summary>記録を書いた（後の MMR を入れて書き直したときも）。引数は記録と JSON のパス。</summary>
+    public event Action<GameLog, string>? Written;
+
     /// <summary>
     /// 中継ログ 1 つから記録を作って書く。書いた記録のパス（書かなかったら null）。例外は外に出さず動作記録に書く。
     /// </summary>
@@ -122,6 +125,7 @@ public sealed class KifuWriterService : IDisposable
                 if (path != null)
                 {
                     Remember(path);
+                    Written?.Invoke(result.Log, path);
                     _log.Info($"記録を書きました: {Path.GetFileName(path)}（{result.Log.Status}、{result.Log.Turns.Count} ターン、順位 {result.Log.Result.Placement?.ToString() ?? "不明"}" +
                               $"、MMR {result.Log.Result.MmrBefore?.ToString() ?? "-"} → {result.Log.Result.MmrAfter?.ToString() ?? (mmrDone ? "-" : "待っています")}）");
                     if (!mmrDone && _mmrWait is { } waitFor)
@@ -203,7 +207,8 @@ public sealed class KifuWriterService : IDisposable
                     var final = DateTime.UtcNow >= p.Deadline;
                     if (!ApplyMmr(log, p.Events, final)) continue;
                     _pending.Remove(p);
-                    KifuOutput.Write(p.Result with { Events = p.Events }, _outRoot, p.SliceGzs, _outputOptions with { WritePowerLog = false });
+                    var written = KifuOutput.Write(p.Result with { Events = p.Events }, _outRoot, p.SliceGzs, _outputOptions with { WritePowerLog = false });
+                    if (written != null) Written?.Invoke(log, written);
                     _log.Info(log.Result.MmrAfter != null
                         ? $"MMR を記録に入れました: {log.Game.GameId}（{log.Result.MmrBefore?.ToString() ?? "-"} → {log.Result.MmrAfter}）"
                         : $"後の MMR は取れませんでした（BgsLastGames.xml に入らなかった）: {log.Game.GameId}（{log.Result.MmrBefore?.ToString() ?? "-"} → -）");
