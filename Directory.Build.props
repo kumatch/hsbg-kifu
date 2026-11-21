@@ -7,5 +7,8 @@
     <Version>0.1.0</Version>
     <Authors>kumatch</Authors>
     <Product>hsbg-kifu</Product>
+    <Deterministic>true</Deterministic>
+    <!-- 配布物に手元の絶対パス（ユーザー名を含む）を残さない（PDB のパス、例外のスタックトレースのファイル名）。scripts/package.ps1 が確かめる -->
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
   </PropertyGroup>
 </Project>
