@@ -157,12 +157,45 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 - 起動時に 7 ゲームを回収して記録を作る間の最大 135 MB。記録を作り終えるたびに .NET にメモリを回収させて OS に返すと、何もしていない間は 71 MB（専用メモリ 29 MB）。
   返さないと 142 MB（同 100 MB）のまま。カードの情報（CardDefs.base.xml、35,000 枚）の読み込みが最大の大半
 
+### 3.3 M4 の実装で分かったこと（2026-11-21）
+
+**ロビーの種族（game.minion_types）**
+- ゲームの仕様（ユーザーから）: 種族はマッチング直後のヒーロー選択の画面で 5 つ示され、毎ゲーム必ず 5 つ、途中で変わらない。
+  無種族のミニオンと全種族のミニオンは、どのロビーでも並ぶ。種族を 2 つ持つミニオンもある。
+  ロビー外の種族のミニオンがショップに並ぶのはまれ（「驚異の教育球」でバディが並ぶ、他プレイヤーのバディを「テス・グレイメイン」が写すなど）
+- **Power.log には無い**: ゲームの始まりの GameEntity・プレイヤーのタグ、ヒーロー選択中（TURN 0）の TAG_CHANGE に、種族を表すものは無い（237 ゲームで、
+  ゲームごとに値が変わるのは乱数の種・バーテンダー・神・ヒーローなどだけ）。`BACON_SUBSET_*` はトリンケットなどにも付き、`IS_BACON_POOL_MINION` のカードにはロビー外の種族もある
+- **他のログにも無い**: log.config に `[Gameplay]`・`[Zone]`・`[Net]`・`[Bob]` を足して 1 ゲーム遊んで調べた（2026-11-21）。Gameplay.log はエンチャントの付け外しとカードのゾーン移動、
+  Zone.log（1 起動 86 MB）はゾーン移動の処理、Net.log は接続と受け取ったデータの名前だけ（**Battle.net の認証に関わる文字列が書かれる**）、Bob.log はできなかった。
+  調べた後、log.config は元に戻した
+- **決め方**（`Capture/LobbyMinionTypes`）: ショップに並んだミニオン（ShopActionTracker と同じ判定）を 1 体 1 回ずつ数え、上位 5 種族。
+  種族は Power.log に出るミニオン自身のタグ（CARDRACE と種族のタグ）から取り、カードの一覧は持たない（カードの更新で直さなくて済む）。
+  無種族（タグ無し）と全種族（CARDRACE=ALL、または種族のタグが 3 つ以上）は数えない。種族を 2 つ持つミニオンは両方を数える
+- **結果**: プラグインの記録（HDT がメモリから読んだ値）と 237 ゲームすべて一致。5 番目と 6 番目が同数のゲームは無かった（同数なら notes に書く）。
+  調べる途中の簡単なスクリプトはショップのミニオンを 2 割ほどしか拾えず（1 ゲーム 53 体。記録の shop_offers では 247 体）、2 つ目の種族のナーガで順位が入れ替わって 7 ゲーム外れていた
+
+**MMR**（`Capture/BgsLastGames`）
+- HDT の `%APPDATA%\HearthstoneDeckTracker\BgsLastGames.xml` の `<Game StartTime= Rating= RatingAfter= ...>`。**直近の 18 ゲームほどしか残らない**（2026-11-21 時点で最も古いのは 11/14 17:44）。
+  過去のゲームを作り直すと MMR は入らない（notes に "mmr_before unavailable" / "mmr_after unavailable"）
+- StartTime は HDT の開始時刻（プラグインの started_at と同じ値）。hsbg-kifu の開始時刻（CREATE_GAME）より 1 秒ほど早いので、前後 2 分以内で最も近いものを取る。
+  XML に残る 18 ゲームで、前・後・差ともプラグインの記録と一致
+- 常駐中は、記録を書いた後に XML を 2 秒ごとに最長 60 秒見直し、後の MMR が入ったら記録を書き直して events.jsonl に `mmr_after` を足す。作り直しでは待たない
+- `Player` 属性（アカウント ID）は読まない。11/30 以降も HDT がこのファイルを書き続けるかは**要検証**
+
+**再接続のつなぎ**（`KifuWriterService.Chain`、`GameRecorder.Resume`）
+- 同じゲーム番号の中継ログで、2 つ目以降が `reconnecting=true` のものを開始時刻の順に続けて読み、1 つの記録にする（game_id・ファイル名は最初の中継ログのもの）。
+  落ちた時点で最初の中継ログから未完了の記録を書き、戻って終わったときに上書きする。どの順で処理しても、同じ番号の中継ログが揃えば同じ記録になる
+- 2 つ目の CREATE_GAME（GameEntity の TURN が 0 より大きい）で記録を続け、Entity に依存する追跡だけやり直す。最後まで見られなかった戦闘は、
+  次のショップ開始時かゲーム終了時に HP + アーマーの差から推定する（`Logic/Reconnect.InferCombat`。notes と events.jsonl の `combat_end` に inferred）
+- 確認: 10/17 17:45 のゲーム（プラグインの power.log.gz を 2 つ目の CREATE_GAME で 2 つに分けて中継ログの組にした）で、16 ターンの HP・アーマー・ティア・
+  戦闘の結果とダメージ・購入の回数がプラグインの記録（手でつないだもの）とすべて一致。2 つ目の中継ログはターン 12 のショップから始まり、同じショップに戻ったと判断した
+
 ## 4. HDT に頼っていた値（確認済み）
 
 | 値 | プラグインの取り方 | HDT なしで |
 |---|---|---|
-| MMR（前・後） | `GameStats.BattlegroundsRating` / `RatingAfter`（HDT がメモリから読む） | Power.log と他のテキストログには無い（11/10 のゲームの 8178 / 8176 で検索して確認）。HDT の `%APPDATA%\HearthstoneDeckTracker\BgsLastGames.xml` の `<Game StartTime= Rating= RatingAfter= Placemenent= ...>` を開始時刻で照らす。`Player` 属性はアカウント ID なので記録しない。11/30 以降も HDT が書き続けるかは**要検証** |
-| ロビーの種族 | `BattlegroundsUtils.GetAvailableRaces()` | HDT はメモリから読んでいる（master の `Hearthstone/BattlegroundsUtils.cs` の `ReadAvailableRacesFromMemory`）。Power.log には無い。ショップに出たミニオンの種族から推定するか null |
+| MMR（前・後） | `GameStats.BattlegroundsRating` / `RatingAfter`（HDT がメモリから読む） | Power.log と他のテキストログには無い（11/10 のゲームの 8178 / 8176 で検索して確認）。HDT の `%APPDATA%\HearthstoneDeckTracker\BgsLastGames.xml` を開始時刻で照らす（M4 で実装。§3.3）。`Player` 属性はアカウント ID なので記録しない。11/30 以降も HDT が書き続けるかは**要検証** |
+| ロビーの種族 | `BattlegroundsUtils.GetAvailableRaces()` | HDT はメモリから読んでいる（master の `Hearthstone/BattlegroundsUtils.cs` の `ReadAvailableRacesFromMemory`）。Power.log にも他のログにも無い。ショップに並んだミニオンの種族の上位 5 つ（M4 で実装。§3.3。237 ゲームすべて一致） |
 | Bob's Buddy | HDT 内部をリフレクションで読む | 取れない。null にする（schema は null を許している） |
 | カードのデータ（名前・ティア・種族） | HDT の `Cards` / HearthDb | HDT の `%APPDATA%\HearthstoneDeckTracker\CardDefs\CardDefs.*.xml` を読む（hsbg-kansousen の `cards.py` と同じ）。HDT を使い続けるので更新される |
 | サーバー側のゲーム番号 | `MetaData.ServerInfo.GameHandle`（HearthMirror） | `GameNetLogger.log` の `Network.GotoGameServe() - ... game=<n> ... reconnecting=<bool>`。同じ行にある接続先アドレスと `spectateKey` は記録しない |
@@ -213,6 +246,5 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 - Hearthstone がログを書くまでの遅れ（HDT がほぼ即時に動いているので問題ない見込み）
 - ログフォルダを何回分残すか。容量の上限での切り替えがあるか（`Power_old.log` になるのは終了時と確認済み、§2）
 - `BgsLastGames.xml` に MMR が入るまでの時間。11/30 以降も書かれ続けるか
-- ロビーの種族を推定したときの精度
 - 自分の発見の選択肢が取れるか（記録するかは別に決める）
 - WPF 常駐アプリにしたときのメモリ
