@@ -5,5 +5,10 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="HsbgKifu.Tests" />
+    <InternalsVisibleTo Include="kifu-dev" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 記録の JSON（プラグインから移した Model / Output）。HDT 同梱の版に頼れないので自分で持つ -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 </Project>
