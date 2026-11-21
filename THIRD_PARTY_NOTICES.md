@@ -27,3 +27,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Newtonsoft.Json
+
+The distributed `HsbgKifu.exe` includes [Newtonsoft.Json](https://www.newtonsoft.com/json) 13.0.3
+(Copyright (c) 2007 James Newton-King, MIT License). The full license text is in `licenses/Newtonsoft.Json-LICENSE.txt` of the release zip.
+
+## .NET
+
+The distributed `HsbgKifu.exe` is a self-contained application: it includes the .NET runtime and the Windows Desktop runtime
+(Copyright (c) .NET Foundation and Contributors, MIT License). The license texts and the .NET runtime's third-party notices are in
+`licenses/dotnet-runtime-LICENSE.txt`, `licenses/dotnet-runtime-THIRD-PARTY-NOTICES.txt` and `licenses/dotnet-windowsdesktop-LICENSE.txt`
+of the release zip (copied from the runtime packages by `scripts/package.ps1`).

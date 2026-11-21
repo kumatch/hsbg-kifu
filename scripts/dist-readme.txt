@@ -1,0 +1,66 @@
+hsbg-kifu
+=========
+
+Hearthstone Battlegrounds の 1 ゲームごとの記録（棋譜）を、Hearthstone のログ（Power.log）から作って
+ローカルの JSON に保存する常駐アプリです。記録は分析ツール hsbg-kansousen で読めます。
+ゲームのメモリは読まず、外部にも送信しません。Blizzard Entertainment、HearthSim とは関係のない非公式のツールです。
+
+詳しい説明: https://github.com/kumatch/hsbg-kifu
+
+
+動かすのに必要なもの
+--------------------
+
+- Windows 10 / 11（64 ビット）
+- HDT（Hearthstone Deck Tracker）を一緒に使ってください。MMR とカードの情報は HDT のファイルから読み、
+  Power.log を出す設定も HDT が行います。HDT が無くても記録はできますが、MMR などが空になります。
+  HDT は、配布元の HSReplay.net のダウンロードページから入手してください。
+  https://hsreplay.net/downloads/
+- .NET のインストールは要りません（この exe に入っています）。
+
+
+使い方
+------
+
+1. この zip を好きな場所に展開します（例: ドキュメントの下）。展開した後でフォルダを動かすと、
+   「サインイン時に起動」の設定を付け直す必要があります。
+2. HsbgKifu.exe を起動します。タスクトレイに青と金の「BG」のアイコンが出ます。
+3. いつもどおり HDT と Hearthstone で BG を遊ぶと、ゲームが終わるたびに記録が
+   ドキュメントの HSBG-Logs\YYYY\MM\ に保存されます。
+
+アイコンを右クリックすると、記録のフォルダ・動作記録・設定を開けます。
+設定画面では、記録の出力先と「Windows へのサインイン時に起動する」を変えられます。
+
+
+初めて起動するときの Windows の警告
+----------------------------------
+
+この exe には電子署名が無いため、初めて起動するときに
+「Windows によって PC が保護されました」と表示されることがあります。
+入手先（https://github.com/kumatch/hsbg-kifu の Releases）が正しいことを確かめてから、
+「詳細情報」→「実行」を押してください。
+
+zip のハッシュ（SHA-256）は Releases のページに書いてあります。PowerShell で次のように確かめられます。
+  Get-FileHash .\hsbg-kifu-<版>-win-x64.zip -Algorithm SHA256
+
+
+HDT プラグイン hdt-plugin-hsbg-kansousen から切り替えるとき
+---------------------------------------------------------
+
+HDT のプラグインを外してから hsbg-kifu を使ってください。両方が同じフォルダに記録を書くと、
+同じゲームの記録が 2 つになることがあります。
+
+
+更新・削除
+----------
+
+- 更新: hsbg-kifu を終了（アイコンを右クリック →「終了」）してから、新しい zip の中身で上書きします。設定は残ります。
+- 削除: 設定画面で「サインイン時に起動する」を外してから終了し、展開したフォルダを消します。
+  設定と動作記録は %APPDATA%\hsbg-kifu にあります。要らなければ消してください。
+  記録（HSBG-Logs）は消えません。
+
+
+ライセンス
+----------
+
+MIT ライセンスです（LICENSE.txt）。同梱しているソフトウェアのライセンスは THIRD_PARTY_NOTICES.md と licenses\ にあります。
