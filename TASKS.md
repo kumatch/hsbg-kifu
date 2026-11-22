@@ -191,8 +191,17 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
 ### M8. すべての発見の 3 択を記録する（2026-11-22 の要望）
 - 目的: 何が提示されて何を選んだかを、トリプル報酬・ヒーローパワー以外（ミニオンの雄叫び、呪文、トリンケット、クエストなど）も含めて残す。
   理想は 3 択が妥当だったかを分析できること（提示されたカードのティア・種族・攻撃力・体力）
-- [ ] 設計（ユーザーと相談）: 選択の出来事（3 択の `Source` と、選ばれた Entity）から直接記録する。手札に入らない選択（すぐトリプルになる・盤面に出る・トリンケット）も取れる。
-      ログの形が変わるので schema 1.11.0。hsbg-kansousen の対応と push の順番は CLAUDE.md「ログの形を変えたとき」
+- [x] 設計（2026-11-22。形はユーザーから任された）: 選択の出来事（3 択の `Source` と、選ばれた Entity）から直接記録する。主ログに `turns[].choices[]`（source、source_card、
+      offered = 候補のティア・攻撃力・体力、chosen_index）、events.jsonl の `discover` に `source_card_id` と `source` の `trinket` / `card`。schema 1.11.0、hsbg-kifu 0.3.0。
+      トリンケットの選択はターン数ではなく候補のカードの種類で決める（ユーザーの指摘: 5・8 ターン目に増えるヒーロー、7 ターン目に早まる上級がある）
+- [x] 実装: パーサが `Source=` と選ばれた Entity を読む（`EntityChoice.SourceId` / `ChosenIds`）、`GameRecorder.OpenChoice` / `OnChoiceMade`、`Capture/ChoiceSource`。
+      手札の差による `discover` の行はやめた。テスト（トリプル報酬・カード・トリンケット 2 種・悪夢の発見・ヒーローパワーが作った悪夢の発見・すぐ手札から消える・選ばれない）
+- [x] 照合: `HSBG-Kifu-Test` の 28 戦で選択肢 454 回（中継ログと一致）、トリプル報酬 110 件（プラグインと一致）、0.2.1 の `discover` の行はすべて残る（docs/research.md §3.4）
+- [ ] hsbg-kansousen の対応（仕様の写し、`KNOWN_SCHEMA_VERSION` 1.11.0、`choices` / `choice_offers` の表、要約、log-caveats）
+- [x] 実機確認（2026-11-22 23:52 のゲーム、ゲイルウィング）: 選択肢 12 回（ヒーローパワーの行き先の選択 4・行き先に着いたときの発見 2・悪夢の発見 3・トリプル報酬 2・
+      トリンケット 1）に候補と選んだものが入った。行き先の発見は `source` が `hero_power`、`source_card` が行き先のカード（Eastern Plaguelands）で見分けられる
+      （hsbg の要約の書き方で対応。ログの形は変えない）
+- [ ] リリース（hsbg-kansousen 0.5.0 が先。push は hsbg-kifu の main が先）
 
 ## 判明したこと・決めたこと
 

@@ -3,7 +3,15 @@ using HearthDb.Enums;
 namespace HsbgKifu.Parse;
 
 /// <summary>選択肢（ヒーロー選択・発見など）。自分にしか出ない（docs/research.md §3）。</summary>
-public sealed record EntityChoice(int Id, string ChoiceType, IReadOnlyList<int> EntityIds, DateTime Time);
+public sealed record EntityChoice(int Id, string ChoiceType, IReadOnlyList<int> EntityIds, DateTime Time)
+{
+    /// <summary>選択肢を出したもの（DebugPrintEntityChoices の <c>Source=</c>。トリプル報酬・ヒーローパワー・ミニオンなど）。無ければ null</summary>
+    public int? SourceId { get; init; }
+    /// <summary>選ばれた Entity（DebugPrintEntitiesChosen の <c>Entities[i]</c>）。<see cref="PowerGameListener.OnChoiceMade"/> の時点で埋まっている</summary>
+    public List<int> ChosenIds { get; } = new();
+    /// <summary>選び終えた時刻（DebugPrintEntitiesChosen の行）</summary>
+    public DateTime? ChosenTime { get; internal set; }
+}
 
 /// <summary>
 /// 1 ゲーム分の状態。<see cref="PowerLogParser"/> が Power.log の <c>GameState.</c> の行から組み立てる。

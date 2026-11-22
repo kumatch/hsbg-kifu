@@ -20,6 +20,8 @@ namespace HsbgKifu.Model
         public List<CardSnapshot>? HandEndOfShop { get; set; }
         /// <summary>このターンにショップへ並んだカード（ターン開始時・リロールごと）。観測できなければ空。schema 1.5.0 で追加</summary>
         public List<ShopOffer> ShopOffers { get; set; } = new List<ShopOffer>();
+        /// <summary>このターンに出た選択肢（発見・トリンケットの選択など）と選んだもの。出た順。無ければ空。schema 1.11.0 で追加</summary>
+        public List<ChoiceRecord> Choices { get; set; } = new List<ChoiceRecord>();
         /// <summary>ショップ開始時の他プレイヤーのティアと HP。取れなければ null。schema 1.5.0 で追加</summary>
         public List<LobbyEntry>? Lobby { get; set; }
         /// <summary>自分の神祇（Secret Deity の Sigil）。神祇の無いシーズンや取れなければ null。schema 1.2.0 で追加</summary>

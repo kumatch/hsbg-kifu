@@ -27,6 +27,7 @@ public sealed class PowerLogParser
     private bool _pendingUpdate;           // _current について OnEntityUpdated をまだ出していない
     private bool _inCreateGame;            // CREATE_GAME の下（GameEntity・Player・再接続の全 Entity）
     private EntityChoiceBuilder? _choice;
+    private EntityChoice? _chosen;         // DebugPrintEntitiesChosen を読んでいる途中（続く Entities[i] を集めてから OnChoiceMade を出す）
     private int _blockDepth;
     private int? _metaDamage;              // 直前の META_DATA - Meta=DAMAGE の Data（続く Info[i] の Entity が受けた）
     private readonly HashSet<string> _warned = new();
@@ -54,6 +55,7 @@ public sealed class PowerLogParser
         if (line.Length < 20) return;
         var src = line.AsSpan(19);
         if (_choice != null && !src.StartsWith(ChoicesSource, StringComparison.Ordinal)) FlushChoice();
+        if (_chosen != null && !src.StartsWith(ChosenSource, StringComparison.Ordinal)) FlushChosen();
         if (src.StartsWith(PowerSource, StringComparison.Ordinal))
         {
             if (Game != null) Game.LastTime = time;
@@ -61,7 +63,7 @@ public sealed class PowerLogParser
         }
         else if (src.StartsWith(GameSource, StringComparison.Ordinal)) GameInfo(src[GameSource.Length..].Trim().ToString());
         else if (src.StartsWith(ChoicesSource, StringComparison.Ordinal)) Choices(src[ChoicesSource.Length..].ToString(), time);
-        else if (src.StartsWith(ChosenSource, StringComparison.Ordinal)) Chosen(src[ChosenSource.Length..].TrimStart().ToString());
+        else if (src.StartsWith(ChosenSource, StringComparison.Ordinal)) Chosen(src[ChosenSource.Length..].TrimStart().ToString(), time);
         else if (src.StartsWith(PowerListSource, StringComparison.Ordinal))
         {
             // 次のまとまりが始まる = 前のまとまりの終わり
@@ -75,6 +77,7 @@ public sealed class PowerLogParser
     {
         FlushEntity();
         FlushChoice();
+        FlushChosen();
         EndCreateGame();
         if (Game != null) Raise(l => l.OnBatchEnd(Game, packetEnd: true));
     }
@@ -372,10 +375,15 @@ public sealed class PowerLogParser
             }
             return;
         }
-        if (_choice != null && t.StartsWith("Entities[", StringComparison.Ordinal))
+        if (_choice == null) return;
+        if (t.StartsWith("Entities[", StringComparison.Ordinal))
         {
             var eq = t.IndexOf("]=", StringComparison.Ordinal);
             if (eq > 0 && Resolve(t[(eq + 2)..]) is { } e) _choice.EntityIds.Add(e.Id);
+        }
+        else if (t.StartsWith("Source=", StringComparison.Ordinal) && Resolve(t["Source=".Length..]) is { } s)
+        {
+            _choice.SourceId = s.Id;
         }
     }
 
@@ -384,23 +392,43 @@ public sealed class PowerLogParser
         var c = _choice;
         _choice = null;
         if (c == null || Game == null) return;
-        var choice = new EntityChoice(c.Id, c.ChoiceType, c.EntityIds, c.Time);
+        var choice = new EntityChoice(c.Id, c.ChoiceType, c.EntityIds, c.Time) { SourceId = c.SourceId };
         Game.Choices.Add(choice);
         Game.PendingChoice = choice;
         Raise(l => l.OnChoices(Game, choice));
     }
 
-    private void Chosen(string body)
+    private void Chosen(string body, DateTime time)
     {
-        // id=1 Player=<名前> EntitiesCount=1（続く Entities[i] は読まない）
+        // id=1 Player=<名前> EntitiesCount=1、続いて Entities[i]=[...]（選ばれた Entity）
         FlushChoice();
-        if (Game == null || !body.StartsWith("id=", StringComparison.Ordinal)) return;
-        var id = IntAfter(body, "id=");
-        if (Game.PendingChoice is { } pending && pending.Id == id)
+        if (Game == null) return;
+        if (body.StartsWith("id=", StringComparison.Ordinal))
         {
-            Game.PendingChoice = null;
-            Raise(l => l.OnChoiceMade(Game, pending));
+            FlushChosen();
+            var id = IntAfter(body, "id=");
+            if (Game.PendingChoice is { } pending && pending.Id == id)
+            {
+                Game.PendingChoice = null;
+                pending.ChosenTime = time;
+                _chosen = pending;
+            }
+            return;
         }
+        if (_chosen != null && body.StartsWith("Entities[", StringComparison.Ordinal))
+        {
+            var eq = body.IndexOf("]=", StringComparison.Ordinal);
+            if (eq > 0 && Resolve(body[(eq + 2)..]) is { } e) _chosen.ChosenIds.Add(e.Id);
+        }
+    }
+
+    /// <summary>選ばれた Entity を読み終えた（DebugPrintEntitiesChosen の行が途切れた）。</summary>
+    private void FlushChosen()
+    {
+        var c = _chosen;
+        _chosen = null;
+        if (c == null || Game == null) return;
+        Raise(l => l.OnChoiceMade(Game, c));
     }
 
     private sealed class EntityChoiceBuilder(int id, string choiceType, DateTime time)
@@ -409,6 +437,7 @@ public sealed class PowerLogParser
         public string ChoiceType { get; } = choiceType;
         public DateTime Time { get; } = time;
         public List<int> EntityIds { get; } = new();
+        public int? SourceId { get; set; }
     }
 
     // ---------------------------------------------------------------- 文字列

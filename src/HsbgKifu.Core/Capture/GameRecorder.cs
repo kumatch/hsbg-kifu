@@ -74,6 +74,8 @@ public sealed class GameRecorder : PowerGameListener
     private readonly List<HeroDamageEvent> _damageEvents = new();
     /// <summary>この戦闘で自分 / 相手のアイスブロックが発動したか（<see cref="OnTagChanged"/>。_damageEvents と同じ区間で数える）。</summary>
     private bool _iceBlockMine, _iceBlockOpponent;
+    /// <summary>出たがまだ選ばれていない選択肢（DebugPrintEntityChoices の id → 記録とターン）</summary>
+    private readonly Dictionary<int, (ChoiceRecord Record, int Turn)> _openChoices = new();
 
     // 神祇と「この対戦中」の強化（戦闘中は区切りごとに読み、戦闘の確定時に書く）
     private readonly DeityTracker _deity = new();
@@ -156,12 +158,47 @@ public sealed class GameRecorder : PowerGameListener
         if (choice.ChoiceType != "MULLIGAN")
         {
             // 発見の 3 択（トリプル報酬・ヒーローパワー・悪夢の発見など）。選び終わるまで区切りが来ないことが多いので、ここで覚える
+            // （悪夢の発見の dark_gift の行は、手札に入ったカードから書く。その offered に使う）
             if (_shopPhase) _tracker.NoteOffered(choice.EntityIds);
+            OpenChoice(game, choice);
             return;
         }
         if (_offeredEntityIds != null) return;
         _offeredEntityIds = choice.EntityIds.ToList();
         TrackHeroPick(game);
+    }
+
+    public override void OnChoiceMade(PowerGame game, EntityChoice choice)
+    {
+        if (!_active || choice.ChoiceType == "MULLIGAN" || !_openChoices.Remove(choice.Id, out var open)) return;
+        var (rec, turn) = open;
+        var chosenId = choice.ChosenIds.Count > 0 ? choice.ChosenIds[0] : 0;
+        var index = chosenId > 0 ? choice.EntityIds.ToList().IndexOf(chosenId) : -1;
+        rec.ChosenIndex = index >= 0 ? index : null;
+        if (rec.Source == ChoiceSource.DarkGift) return; // events.jsonl には dark_gift の行がある（手札に入ったカードから。actions.dark_gifts と同じ数え方）
+        var chosen = rec.ChosenIndex is { } i ? rec.Offered[i] : null;
+        EmitAt(choice.ChosenTime ?? game.LastTime, "discover", turn, F("card_id", chosen?.CardId), F("name", chosen?.Name),
+            F("gold_after", GoldRemaining(game.PlayerEntity)), F("source", rec.Source), F("source_card_id", rec.SourceCard.CardId),
+            F("offered", rec.Offered.Select(c => c.CardId).ToList()));
+    }
+
+    /// <summary>
+    /// 選択肢が出た: 候補をその時点の値で記録する（turns[].choices[]。選んだものは <see cref="OnChoiceMade"/> で埋める）。
+    /// 何による選択かは、出したもの（Source=）と候補のカードの種類で決める。ターン数では決めない（トリンケットの選択はヒーローや効果で早まる・増える）
+    /// </summary>
+    private void OpenChoice(PowerGame game, EntityChoice choice)
+    {
+        if (_record == null || _currentTurn <= 0 || choice.EntityIds.Count == 0) return;
+        var offered = choice.EntityIds.Select(id => game.Entities.TryGetValue(id, out var e) ? e : null).ToList();
+        Entity? source = choice.SourceId is { } sid && game.Entities.TryGetValue(sid, out var s) ? s : null;
+        var rec = new ChoiceRecord
+        {
+            Source = ChoiceSource.Of(source, offered, game.LocalPlayerId ?? 0, game.Entities),
+            Offered = offered.Select(e => e != null ? _cards.ToSnapshot(e) : new CardSnapshot()).ToList(),
+        };
+        if (source != null) KifuCards.Fill(rec.SourceCard, _cards.FromCardId(KifuCards.LatestCardId(source)));
+        GetOrAddTurn(_currentTurn).Choices.Add(rec);
+        _openChoices[choice.Id] = (rec, _currentTurn);
     }
 
     public override void OnBatchEnd(PowerGame game, bool packetEnd)
@@ -364,6 +401,7 @@ public sealed class GameRecorder : PowerGameListener
         _inCombat = false;
         _opponentBoardRecheckAt = null;
         ClearCombatEvents();
+        _openChoices.Clear(); // 落ちる前に出た選択肢は、選んだかどうか分からない（chosen_index は null のまま）
         _tracker.Reset();
         _deity.Reset();
         _playerSigil = null;
@@ -615,13 +653,10 @@ public sealed class GameRecorder : PowerGameListener
         if (actions.Count == 0) return;
         foreach (var a in actions)
         {
-            if (a.Type == ShopAction.HeroPower && a.EntityId.HasValue)
-            {
-                // ShopActionTracker はヒーローパワーで発見したカードをヒーローパワーの行に載せる。ヒーローパワーの行は PLAY ブロックから書くので、発見の行にする
-                a.Type = ShopAction.Discover;
-                a.Source = CardSource.HeroPower;
-            }
-            else if (ShopBlockActions.CountedFromBlocks(a.Type)) continue; // events.jsonl には PLAY ブロックから書く
+            // 発見（トリプル報酬・ヒーローパワー）の行は、選択の出来事から書く（OnChoiceMade。schema 1.11.0）。手札の差からは書かない
+            // （ShopActionTracker はヒーローパワーで発見したカードをヒーローパワーの行に載せるが、ヒーローパワーの行は PLAY ブロックから書く）
+            if (a.Type == ShopAction.Discover) continue;
+            if (ShopBlockActions.CountedFromBlocks(a.Type)) continue; // events.jsonl には PLAY ブロックから書く
             if (a.Type == ShopAction.Shop)
             {
                 RecordShopOffer(ents, a);
@@ -1059,6 +1094,10 @@ public sealed class GameRecorder : PowerGameListener
         var at = _game != null ? new DateTimeOffset(_game.LastTime) : DateTimeOffset.Now;
         _events.Add(EventsJsonlWriter.Line(at, turn, type, fields));
     }
+
+    /// <summary>行の時刻を指定して書く（選択は DebugPrintEntitiesChosen の行の時刻。PowerGame.LastTime は DebugPrintPower の行でしか進まない）。</summary>
+    private void EmitAt(DateTime at, string type, int turn, params KeyValuePair<string, object?>[] fields)
+        => _events.Add(EventsJsonlWriter.Line(new DateTimeOffset(at), turn, type, fields));
 
     private void Note(string message)
     {

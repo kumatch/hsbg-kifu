@@ -275,6 +275,113 @@ public class GameRecorderTests
         Assert.Equal("triple", (string?)discover["source"]);
         Assert.Equal("BG36_515", (string?)discover["card_id"]);
         Assert.Equal(new[] { "BG22_403", "BG26_354", "BG36_515" }, discover["offered"]!.Select(x => (string?)x));
+        Assert.Equal("TB_BaconShop_Triples_01", (string?)discover["source_card_id"]);
+        Assert.Contains(r.EventLines, l => l.Contains("\"type\":\"discover\"") && l.StartsWith("{\"t\":\"2026-11-20T10:01:27.5")); // 選び終えた行の時刻
+
+        var choice = Assert.Single(r.Record!.Turns.Single(t => t.Turn == 1).Choices);
+        Assert.Equal("triple", choice.Source);
+        Assert.Equal("TB_BaconShop_Triples_01", choice.SourceCard.CardId);
+        Assert.Equal(new[] { "BG22_403", "BG26_354", "BG36_515" }, choice.Offered.Select(c => c.CardId));
+        Assert.Equal("minion", choice.Offered[0].CardType);
+        Assert.Equal(2, choice.ChosenIndex);
+    }
+
+    /// <summary>
+    /// ターン 1 のショップで、Entity 600（<paramref name="sourceCardId"/>、種類 <paramref name="sourceType"/>）が 3 択（601〜603、種類 <paramref name="offeredType"/>）を出し、602 を選ぶ。
+    /// <paramref name="leavesHandAtOnce"/> なら、選んだカードは手札に入ったまとまりの中ですぐ手札から消える（すぐトリプルになった）。
+    /// </summary>
+    private static List<string> ChoiceTurn(string sourceCardId, string sourceType, string offeredType, bool leavesHandAtOnce = false, bool createdByHeroPower = false)
+    {
+        var lines = OneTurn();
+        var at = lines.FindIndex(l => l.Contains("tag=TURN value=2")) - 1;
+        var add = new List<string>
+        {
+            PL("10:01:25.0000000"),
+            P("10:01:25.0000000", $"FULL_ENTITY - Creating ID=600 CardID={sourceCardId}"),
+            P("10:01:25.0000000", $"    tag=CARDTYPE value={sourceType}"),
+            P("10:01:25.0000000", "    tag=CONTROLLER value=2"),
+            P("10:01:25.0000000", "    tag=ZONE value=PLAY"),
+            P("10:01:25.0000000", $"    tag=CREATOR value={(createdByHeroPower ? 650 : 0)}"),
+            P("10:01:25.0000000", "FULL_ENTITY - Creating ID=650 CardID=BG36_HERO_105p"),
+            P("10:01:25.0000000", "    tag=CARDTYPE value=HERO_POWER"),
+            P("10:01:25.0000000", "    tag=CONTROLLER value=2"),
+            P("10:01:25.0000000", "    tag=ZONE value=PLAY"),
+            P("10:01:26.0000000", "BLOCK_START BlockType=POWER Entity=[entityName=x id=600 zone=PLAY zonePos=1 cardId=" + sourceCardId + " player=2] EffectCardId=System.Collections.Generic.List`1[System.String] EffectIndex=0 Target=0 SubOption=-1 "),
+        };
+        foreach (var (id, card) in new[] { (601, "BG_A"), (602, "BG_B"), (603, "BG_C") })
+        {
+            add.Add(P("10:01:26.0000000", $"    FULL_ENTITY - Creating ID={id} CardID={card}"));
+            add.Add(P("10:01:26.0000000", $"        tag=CARDTYPE value={offeredType}"));
+            add.Add(P("10:01:26.0000000", "        tag=CONTROLLER value=2"));
+            add.Add(P("10:01:26.0000000", "        tag=ZONE value=SETASIDE"));
+            add.Add(P("10:01:26.0000000", "        tag=CREATOR value=600"));
+            add.Add(P("10:01:26.0000000", $"        tag=ATK value={id - 600}"));
+            add.Add(P("10:01:26.0000000", $"        tag=HEALTH value={id - 590}"));
+        }
+        add.AddRange(new[]
+        {
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() - id=21 Player=Me TaskList=10046 ChoiceType=GENERAL CountMin=1 CountMax=1",
+            $"D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Source=[entityName=x id=600 zone=PLAY zonePos=1 cardId={sourceCardId} player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=x id=601 zone=SETASIDE zonePos=0 cardId=BG_A player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[1]=[entityName=x id=602 zone=SETASIDE zonePos=0 cardId=BG_B player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[2]=[entityName=x id=603 zone=SETASIDE zonePos=0 cardId=BG_C player=2]",
+            "D 10:01:27.5000000 GameState.DebugPrintEntitiesChosen() - id=21 Player=Me EntitiesCount=1",
+            "D 10:01:27.5000000 GameState.DebugPrintEntitiesChosen() -   Entities[0]=[entityName=x id=602 zone=SETASIDE zonePos=0 cardId=BG_B player=2]",
+            PL("10:01:27.5100000"),
+            P("10:01:27.5100000", "TAG_CHANGE Entity=602 tag=ZONE value=HAND "),
+        });
+        if (leavesHandAtOnce) add.Add(P("10:01:27.5100000", "TAG_CHANGE Entity=602 tag=ZONE value=SETASIDE "));
+        add.Add(P("10:01:27.5100000", "BLOCK_END"));
+        lines.InsertRange(at, add);
+        return lines;
+    }
+
+    [Theory]
+    [InlineData("BG31_890", "MINION", "MINION", "card")]                 // ミニオンの雄叫びの発見
+    [InlineData("BG30_Trinket_1st", "SPELL", "BATTLEGROUND_TRINKET", "trinket")] // トリンケットの選択（ターン数では決めない）
+    [InlineData("BG30_MagicItem_703t", "BATTLEGROUND_TRINKET", "BATTLEGROUND_TRINKET", "trinket")]
+    [InlineData("BG36_MidGameEffect_010", "SPELL", "MINION", "dark_gift")]
+    [InlineData("BG36_MidGameEffect_010", "SPELL", "MINION", "hero_power", true)] // ヒーローパワーが作った悪夢の発見の発見スペル（BG36_HERO_105p）
+    [InlineData("BG36_HERO_105p", "HERO_POWER", "MINION", "hero_power")]
+    public void RecordsEveryChoiceWithItsSource(string sourceCardId, string sourceType, string offeredType, string expected, bool createdByHeroPower = false)
+    {
+        var r = Run(Setup().Concat(ChoiceTurn(sourceCardId, sourceType, offeredType, createdByHeroPower: createdByHeroPower)).Concat(End()));
+        var choice = Assert.Single(r.Record!.Turns.Single(t => t.Turn == 1).Choices);
+        Assert.Equal(expected, choice.Source);
+        Assert.Equal(sourceCardId, choice.SourceCard.CardId);
+        Assert.Equal(new[] { "BG_A", "BG_B", "BG_C" }, choice.Offered.Select(c => c.CardId));
+        Assert.Equal(1, choice.ChosenIndex);
+        var discovers = r.EventLines.Select(JObject.Parse).Where(e => (string?)e["type"] == "discover").ToList();
+        if (expected == "dark_gift")
+        {
+            Assert.Empty(discovers); // 悪夢の発見は dark_gift の行（手札に入ったカードから）
+            return;
+        }
+        var d = Assert.Single(discovers);
+        Assert.Equal(expected, (string?)d["source"]);
+        Assert.Equal("BG_B", (string?)d["card_id"]);
+        Assert.Equal(sourceCardId, (string?)d["source_card_id"]);
+        if (offeredType == "MINION") Assert.Equal(2, choice.Offered[1].Attack); // 候補が出た時点の値
+    }
+
+    [Fact]
+    public void RecordsAChoiceWhosePickLeavesTheHandInTheSameBatch()
+    {
+        // 選んだカードが手札に入ったまとまりの中で、すぐトリプルになって手札から消えた（手札の差では見えない。11/14 00:47 の T8）
+        var r = Run(Setup().Concat(ChoiceTurn("TB_BaconShop_Triples_01", "SPELL", "MINION", leavesHandAtOnce: true)).Concat(End()));
+        var d = Assert.Single(r.EventLines.Select(JObject.Parse), e => (string?)e["type"] == "discover");
+        Assert.Equal("triple", (string?)d["source"]);
+        Assert.Equal("BG_B", (string?)d["card_id"]);
+    }
+
+    [Fact]
+    public void AChoiceThatWasNeverMadeHasNoChosenIndex()
+    {
+        var lines = ChoiceTurn("BG31_890", "MINION", "MINION");
+        lines.RemoveAll(l => l.Contains("DebugPrintEntitiesChosen"));
+        var r = Run(Setup().Concat(lines).Concat(End()));
+        Assert.Null(Assert.Single(r.Record!.Turns.Single(t => t.Turn == 1).Choices).ChosenIndex);
+        Assert.DoesNotContain(r.EventLines, l => l.Contains("\"type\":\"discover\""));
     }
 
     [Fact]

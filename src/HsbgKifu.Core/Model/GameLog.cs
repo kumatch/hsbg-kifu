@@ -10,7 +10,7 @@ namespace HsbgKifu.Model
 
     public sealed class GameLog
     {
-        public const string CurrentSchemaVersion = "1.10.0";
+        public const string CurrentSchemaVersion = "1.11.0";
 
         public string SchemaVersion { get; set; } = CurrentSchemaVersion;
         /// <summary>"complete" | "incomplete" | "not_battlegrounds"</summary>
