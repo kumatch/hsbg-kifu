@@ -213,6 +213,70 @@ public class GameRecorderTests
         Assert.Equal(opponent, (bool?)end["opponent_ice_block"]);
     }
 
+    /// <summary>
+    /// ターン 1 のショップで、手札のトリプル報酬（Entity 500）を使う。3 択（501〜503、CREATOR = 500）はまとまりの途中に出て、
+    /// 次のまとまり（選んだ 503 が手札に入る）より前に選び終わる。間に区切り（ブロックの終わり・次のまとまり）が無い。
+    /// 2026-11-22 00:46 のゲームの T13 と同じ並び（Power.log の DebugPrintEntityChoices → DebugPrintEntitiesChosen → DebugPrintPowerList）。
+    /// </summary>
+    private static List<string> TripleRewardDiscoverTurn()
+    {
+        var lines = OneTurn();
+        var turn2 = lines.FindIndex(l => l.Contains("tag=TURN value=2"));
+        var at = turn2 - 1; // ターン 2 の PL の前（ショップの最後）
+        lines.InsertRange(at, new[]
+        {
+            PL("10:01:25.0000000"),
+            P("10:01:25.0000000", "FULL_ENTITY - Creating ID=500 CardID=TB_BaconShop_Triples_01"),
+            P("10:01:25.0000000", "    tag=CARDTYPE value=SPELL"),
+            P("10:01:25.0000000", "    tag=CONTROLLER value=2"),
+            P("10:01:25.0000000", "    tag=ZONE value=HAND"),
+            PL("10:01:26.0000000"),
+            P("10:01:26.0000000", "BLOCK_START BlockType=PLAY Entity=[entityName=x id=500 zone=HAND zonePos=2 cardId=TB_BaconShop_Triples_01 player=2] EffectCardId=System.Collections.Generic.List`1[System.String] EffectIndex=0 Target=0 SubOption=-1 "),
+            P("10:01:26.0000000", "    TAG_CHANGE Entity=500 tag=ZONE value=PLAY "),
+            P("10:01:26.0000000", "    BLOCK_START BlockType=POWER Entity=[entityName=x id=500 zone=PLAY zonePos=0 cardId=TB_BaconShop_Triples_01 player=2] EffectCardId=System.Collections.Generic.List`1[System.String] EffectIndex=0 Target=0 SubOption=-1 "),
+            P("10:01:26.0000000", "        FULL_ENTITY - Creating ID=501 CardID=BG22_403"),
+            P("10:01:26.0000000", "            tag=CARDTYPE value=MINION"),
+            P("10:01:26.0000000", "            tag=CONTROLLER value=2"),
+            P("10:01:26.0000000", "            tag=ZONE value=SETASIDE"),
+            P("10:01:26.0000000", "            tag=CREATOR value=500"),
+            P("10:01:26.0000000", "        FULL_ENTITY - Creating ID=502 CardID=BG26_354"),
+            P("10:01:26.0000000", "            tag=CARDTYPE value=MINION"),
+            P("10:01:26.0000000", "            tag=CONTROLLER value=2"),
+            P("10:01:26.0000000", "            tag=ZONE value=SETASIDE"),
+            P("10:01:26.0000000", "            tag=CREATOR value=500"),
+            P("10:01:26.0000000", "        FULL_ENTITY - Creating ID=503 CardID=BG36_515"),
+            P("10:01:26.0000000", "            tag=CARDTYPE value=MINION"),
+            P("10:01:26.0000000", "            tag=CONTROLLER value=2"),
+            P("10:01:26.0000000", "            tag=ZONE value=SETASIDE"),
+            P("10:01:26.0000000", "            tag=CREATOR value=500"),
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() - id=20 Player=Me TaskList=10045 ChoiceType=GENERAL CountMin=1 CountMax=1",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Source=[entityName=x id=500 zone=PLAY zonePos=0 cardId=TB_BaconShop_Triples_01 player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=x id=501 zone=SETASIDE zonePos=0 cardId=BG22_403 player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[1]=[entityName=x id=502 zone=SETASIDE zonePos=0 cardId=BG26_354 player=2]",
+            "D 10:01:26.1000000 GameState.DebugPrintEntityChoices() -   Entities[2]=[entityName=x id=503 zone=SETASIDE zonePos=0 cardId=BG36_515 player=2]",
+            "D 10:01:27.2000000 GameState.SendChoices() - id=20 ChoiceType=GENERAL",
+            "D 10:01:27.5000000 GameState.DebugPrintEntitiesChosen() - id=20 Player=Me EntitiesCount=1",
+            "D 10:01:27.5000000 GameState.DebugPrintEntitiesChosen() -   Entities[0]=[entityName=x id=503 zone=SETASIDE zonePos=0 cardId=BG36_515 player=2]",
+            PL("10:01:27.5100000"),
+            P("10:01:27.5100000", "TAG_CHANGE Entity=503 tag=ZONE value=HAND "),
+            P("10:01:27.5100000", "TAG_CHANGE Entity=500 tag=ZONE value=GRAVEYARD "),
+            P("10:01:27.5100000", "    BLOCK_END"),
+            P("10:01:27.5100000", "BLOCK_END"),
+        });
+        return lines;
+    }
+
+    [Fact]
+    public void RecordsATripleRewardDiscoverWhoseChoiceEndsBeforeTheNextBatch()
+    {
+        var r = Run(Setup().Concat(TripleRewardDiscoverTurn()).Concat(End()));
+        var discover = r.EventLines.Select(JObject.Parse).Single(e => (string?)e["type"] == "discover");
+        Assert.Equal(1, (int?)discover["turn"]);
+        Assert.Equal("triple", (string?)discover["source"]);
+        Assert.Equal("BG36_515", (string?)discover["card_id"]);
+        Assert.Equal(new[] { "BG22_403", "BG26_354", "BG36_515" }, discover["offered"]!.Select(x => (string?)x));
+    }
+
     [Fact]
     public async Task RecordWithoutMmrAndLobbyTypesIsValidAgainstTheSchema()
     {

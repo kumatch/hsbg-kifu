@@ -170,6 +170,16 @@ namespace HsbgKifu.Logic
             Buys = Sells = GoldGained = Rerolls = TierUps = HeroPowerUses = SpellsPlayed = Plays = Triples = DarkGifts = Ticks = 0;
         }
 
+        /// <summary>
+        /// 3 択が提示された（hsbg-kifu: Power.log の DebugPrintEntityChoices）。3 択はまとまりの途中に出て、次の区切りより前に選び終わることが多く、
+        /// tick の <see cref="ShopTick.OfferedIds"/> では見えないので、提示された時点で覚えておく（選んだカードが手札に来た tick で使う）。
+        /// </summary>
+        public void NoteOffered(IEnumerable<int> entityIds)
+        {
+            var ids = entityIds.OrderBy(x => x).ToList();
+            if (ids.Count > 0) _lastOffered = ids;
+        }
+
         /// <summary>1 tick を観測し、この tick で検出した行動を返す（無ければ空）。すべての tick を区切り（packetEnd = true）として扱う。</summary>
         public List<ShopAction> Observe(ShopTick tick) => Observe(tick, packetEnd: true);
 

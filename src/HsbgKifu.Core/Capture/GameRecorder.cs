@@ -152,7 +152,14 @@ public sealed class GameRecorder : PowerGameListener
 
     public override void OnChoices(PowerGame game, EntityChoice choice)
     {
-        if (!_active || choice.ChoiceType != "MULLIGAN" || _offeredEntityIds != null) return;
+        if (!_active) return;
+        if (choice.ChoiceType != "MULLIGAN")
+        {
+            // 発見の 3 択（トリプル報酬・ヒーローパワー・悪夢の発見など）。選び終わるまで区切りが来ないことが多いので、ここで覚える
+            if (_shopPhase) _tracker.NoteOffered(choice.EntityIds);
+            return;
+        }
+        if (_offeredEntityIds != null) return;
         _offeredEntityIds = choice.EntityIds.ToList();
         TrackHeroPick(game);
     }
