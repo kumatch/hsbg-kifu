@@ -43,12 +43,6 @@ public sealed class SliceMeta
     public static string MakeKey(string session, string createGameTime) => session + "|" + createGameTime;
 }
 
-public static class KifuVersion
-{
-    public static readonly string Current =
-        typeof(KifuVersion).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.0.0";
-}
-
 /// <summary>
 /// 中継ログの置き場: <c>&lt;root&gt;\YYYY\MM\&lt;yyyyMMdd-HHmmss&gt;_&lt;ゲーム番号&gt;.power.log(.gz)</c> と <c>.slice.json</c>。
 /// 書いている間は平文で追記し（落ちても書いたところまで残る）、終わったら gzip にして平文を消す。

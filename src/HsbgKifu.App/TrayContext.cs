@@ -32,6 +32,7 @@ internal sealed class TrayContext : ApplicationContext
         if (problem != null) _log.Warn(problem);
 
         var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem($"hsbg-kifu {Watch.KifuVersion.Current}") { Enabled = false });
         menu.Items.Add(_status);
         menu.Items.Add(_last);
         menu.Items.Add(new ToolStripSeparator());
@@ -46,7 +47,7 @@ internal sealed class TrayContext : ApplicationContext
         _timer.Tick += (_, _) => UpdateStatus();
         _timer.Start();
 
-        _log.Info($"hsbg-kifu {Watch.KifuVersion.Current} を起動しました");
+        _log.Info($"hsbg-kifu {Watch.KifuVersion.Display} を起動しました");
         StartService();
         var logConfig = LogConfigCheck.Problems();
         if (logConfig.Count > 0)

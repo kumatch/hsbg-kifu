@@ -7,6 +7,9 @@
   説明・ライセンスと一緒に zip にする。利用者は展開して HsbgKifu.exe を起動するだけでよい（.NET のインストールは要らない）。
   .NET ランタイムは MIT ライセンスなので同梱して配布してよい。条件の著作権表示とライセンス文は licenses\ に入れる。
 
+  版は Directory.Build.props の <Version>。exe にはビルドしたコミットも入り、設定画面と動作記録に出る（KifuVersion.Display）。
+  そのため、作業ツリーにコミットしていない変更があるときと、タグ v<version> が HEAD 以外を指しているとき（版の上げ忘れ）は止める。
+
   出力: dist\hsbg-kifu-<version>-win-x64.zip と、その SHA-256 を書いた .sha256
   zip の中身:
     hsbg-kifu\HsbgKifu.exe
@@ -18,10 +21,12 @@
 .EXAMPLE
   .\scripts\package.ps1
   .\scripts\package.ps1 -SkipTests
+  .\scripts\package.ps1 -AllowDirty   # 試しに作るとき（コミットしていない変更があっても止めない。配布には使わない）
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$AllowDirty
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +42,20 @@ function Get-MsBuildProperty([string]$name) {
     return ($json | Out-String).Trim()
 }
 
+function Invoke-Git {
+    $out = & git -C $repoRoot @args
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') に失敗しました (exit $LASTEXITCODE)" }
+    return ($out | Out-String).Trim()
+}
+
+# exe に入るコミットのハッシュが中身と合うように、コミットしていない変更があれば止める
+$dirty = Invoke-Git status --porcelain
+if ($dirty) {
+    if (-not $AllowDirty) { throw "コミットしていない変更があります（git status）。コミットしてから作ってください（試すだけなら -AllowDirty）" }
+    Write-Warning 'コミットしていない変更があります。この zip は配布に使わないでください'
+}
+$head = Invoke-Git rev-parse HEAD
+
 if (-not $SkipTests) {
     Write-Host 'テストを実行します ...'
     & dotnet test (Join-Path $repoRoot 'HsbgKifu.sln') -c Release --nologo
@@ -47,6 +66,12 @@ $version = Get-MsBuildProperty 'Version'
 $runtimeVersion = Get-MsBuildProperty 'BundledNETCoreAppPackageVersion'
 $tfm = Get-MsBuildProperty 'TargetFramework'
 Write-Host "hsbg-kifu $version（.NET ランタイム $runtimeVersion を同梱）"
+
+# タグ v<version> がもうあるなら HEAD を指していること（前のリリースの後で <Version> を上げ忘れていないか）
+$tagCommit = & git -C $repoRoot rev-parse -q --verify "refs/tags/v$version^{commit}"
+if ($LASTEXITCODE -eq 0 -and $tagCommit -and $tagCommit.Trim() -ne $head) {
+    throw "タグ v$version は別のコミット（$($tagCommit.Trim().Substring(0, 7))）を指しています。Directory.Build.props の <Version> を上げてください"
+}
 
 if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
 $appDir = Join-Path $staging 'hsbg-kifu'
@@ -59,6 +84,11 @@ Write-Host '1 つの exe にまとめます ...'
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish に失敗しました (exit $LASTEXITCODE)" }
 $exe = Join-Path $appDir 'HsbgKifu.exe'
 if (-not (Test-Path $exe)) { throw "exe が見つかりません: $exe" }
+# exe の版（AssemblyInformationalVersion）が「<Version>+HEAD のコミット」になっているか。設定画面と動作記録に出る値
+$productVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductVersion
+if ($productVersion -ne "$version+$head") {
+    throw "exe の版が $productVersion です（期待: $version+$head）"
+}
 $extra = Get-ChildItem $appDir -File | Where-Object { $_.Name -ne 'HsbgKifu.exe' }
 if ($extra) { throw "exe 以外のファイルが出ました（1 つの exe になっていません）: $($extra.Name -join ', ')" }
 
@@ -134,4 +164,5 @@ finally {
     $archive.Dispose()
 }
 Write-Host ("zip: {0:N1} MB" -f ((Get-Item $zip).Length / 1MB))
+Write-Host "版: $productVersion"
 Write-Host "SHA-256: $hash（リリースノートに書く）"

@@ -62,6 +62,14 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(new Label());
         layout.Controls.Add(note);
         layout.SetColumnSpan(note, 2);
+        var version = new Label
+        {
+            Text = $"hsbg-kifu {Watch.KifuVersion.Display}",
+            AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 10, 0, 0),
+        };
+        layout.Controls.Add(new Label());
+        layout.Controls.Add(version);
+        layout.SetColumnSpan(version, 2);
 
         var ok = new Button { Text = "保存", DialogResult = DialogResult.None, AutoSize = true };
         ok.Click += (_, _) => Save();
