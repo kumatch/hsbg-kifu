@@ -5,13 +5,14 @@ using HsbgKifu.Watch;
 namespace HsbgKifu.Cli;
 
 /// <summary>
-/// 開発・確認用のコマンド。常駐アプリ（M5）ができるまでは、これで Power.log を監視する。
+/// 開発・確認用のコマンド（配布しない。docs/development.md）。
 /// <code>
-/// hsbg-kifu watch [--out DIR] [--hs DIR] [--log FILE]   常駐して Power.log を読み続け、ゲームごとに切り出して記録を作る（Ctrl+C で止める）
-/// hsbg-kifu slice --logs DIR [--out DIR]                 終わったログフォルダ（Logs や M0 の退避先）をまとめて切り出す（記録は作らない）
-/// hsbg-kifu rebuild [--out DIR]                           中継ログ（&lt;out&gt;\.slices）から記録を作り直す
+/// hsbg-kifu watch --out DIR [--hs DIR] [--log FILE]   常駐して Power.log を読み続け、ゲームごとに切り出して記録を作る（Ctrl+C で止める）
+/// hsbg-kifu slice --logs DIR --out DIR                 終わったログフォルダ（Logs や M0 の退避先）をまとめて切り出す（記録は作らない）
+/// hsbg-kifu rebuild --out DIR                          中継ログ（&lt;out&gt;\.slices）から記録を作り直す
 /// </code>
-/// 中継ログは &lt;out&gt;\.slices\ に、記録は &lt;out&gt;\YYYY\MM\ に書く。&lt;out&gt; の既定は %USERPROFILE%\Documents\HSBG-Logs。
+/// 中継ログは &lt;out&gt;\.slices\ に、記録は &lt;out&gt;\YYYY\MM\ に書く。
+/// --out は必須（既定値を置くと、試しただけで常駐アプリやプラグインの記録のフォルダに書いてしまうため）。
 /// </summary>
 public static class Program
 {
@@ -25,7 +26,13 @@ public static class Program
         var opts = ParseOptions(args.Skip(1).ToArray());
         if (opts == null) { Usage(); return 2; }
 
-        var outDir = opts.GetValueOrDefault("out") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "HSBG-Logs");
+        var outDir = opts.GetValueOrDefault("out");
+        if (string.IsNullOrWhiteSpace(outDir))
+        {
+            Console.Error.WriteLine("--out で出力先を指定してください（試すときは、常駐アプリの記録とは別の空のフォルダにします）");
+            Usage();
+            return 2;
+        }
         var slicesRoot = Path.Combine(outDir, ".slices");
         var log = new TextKifuLog(Console.Out, opts.GetValueOrDefault("log"));
 
@@ -91,17 +98,24 @@ public static class Program
     {
         Console.Error.WriteLine("""
             使い方:
-              hsbg-kifu watch [--out DIR] [--hs DIR] [--log FILE]
-                  常駐して Power.log を読み続け、ゲームごとの中継ログと記録を書く（Ctrl+C で止める）
-              hsbg-kifu slice --logs DIR [--out DIR]
-                  終わったログフォルダ（Hearthstone の Logs、または backup-powerlogs.ps1 の退避先）をまとめて切り出す（記録は作らない）
-              hsbg-kifu rebuild [--out DIR]
-                  中継ログ（<out>\.slices）から記録を作り直す。同じゲームの別の記録（プラグインの記録など）があれば書かない。
-                  整理済みの中継ログ（.power.log.gz を消したもの）は飛ばす
+              hsbg-kifu watch --out DIR [--hs DIR] [--log FILE]
+                  常駐して Power.log を読み続け、ゲームごとの中継ログと記録を書く（Ctrl+C で止める）。
+                  起動時に、中継ログはあるのに記録が無いゲームの記録も作る。始まってから 30 日を過ぎたゲームの中継ログは整理する
+              hsbg-kifu slice --logs DIR --out DIR
+                  終わったログフォルダ（Hearthstone の Logs、または scripts\backup-powerlogs.ps1 の退避先）をまとめて切り出す（記録は作らない）
+              hsbg-kifu rebuild --out DIR
+                  中継ログ（<out>\.slices）から記録を作り直す。整理済みの中継ログ（.power.log.gz を消したもの）は飛ばす
 
-              --out  出力先（既定: Documents\HSBG-Logs）。中継ログは <out>\.slices\、記録は <out>\YYYY\MM\ に書く
+              --out  出力先（必須）。中継ログは <out>\.slices\、記録は <out>\YYYY\MM\ に書く。
+                     試すときは、常駐アプリの記録のフォルダ（Documents\HSBG-Logs）とは別の空のフォルダにする
               --hs   Hearthstone のフォルダ（既定: HDT の config.xml の HearthstoneDirectory）
               --log  動作記録を書くファイル
+
+            注意:
+              - 開発・確認用のコマンドです。配布の zip には入っていません
+              - 出力先に同じゲームの記録があれば書きません。ただし確かめるのは、起動したときにあった記録と自分が書いた記録だけです。
+                常駐アプリと同じ出力先で同時に動かすと、同じゲームの記録が 2 つになることがあります
+              - 中継ログ（.slices）と .power.log.gz には、同じロビーの全員の BattleTag が入ります。人に渡さないでください
             """);
     }
 }

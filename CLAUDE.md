@@ -14,7 +14,8 @@ HDT プラグイン hdt-plugin-hsbg-kansousen（隣のフォルダ `..\hdt-plugi
 - `docs/log-schema.md` — ログの仕様（これが hsbg-kansousen との契約。変えたら `schema_version` を上げる）
 - `docs/research.md` — Power.log と HDT のファイルについて確認した事実
 - `docs/architecture.md` — 設計
-- `docs/development.md` — ビルドとコマンドライン（Cli）の使い方。README は利用者向けに保ち、開発者向けの手順はこちらに書く
+- `docs/development.md` — ソースからのビルド。README は利用者向けに保ち、開発者向けの手順はこちらに書く。
+  公開しているので、作者の手元でしか意味のない手順は書かない。Cli と DevTools の使い方・注意は各 `Program.cs` の使い方の表示に書く
 
 ## 環境の前提
 
@@ -84,7 +85,7 @@ src/HsbgKifu.Core/
 ├── Config/       # KifuConfig（%APPDATA%\hsbg-kifu\config.json）, OutputDirectory, LogConfigCheck
 └── KifuService.cs  # 監視と記録をまとめて動かす（常駐アプリと Cli の watch が使う）
 src/HsbgKifu.App/ # HsbgKifu.exe（配布する常駐アプリ。WinForms の NotifyIcon）: TrayContext, SettingsForm, Startup（HKCU の Run）
-src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice / rebuild。配布しない開発・確認用。docs/development.md）
+src/HsbgKifu.Cli/ # hsbg-kifu.exe（watch / slice / rebuild。配布しない開発・確認用。--out は必須。使い方は引数なしで実行）
 docs/log-schema.md, schema/game-log.schema.json  # ログの仕様の正本（hsbg-kansousen が写しを持つ）
 tests/HsbgKifu.Tests/  # xUnit。実データは使わず TestLogs.cs などで短いログを組み立てる
 tools/HsbgKifu.DevTools/  # kifu-dev.exe（配布しない）: verify-parse / verify-json（プラグインの記録との答え合わせ）

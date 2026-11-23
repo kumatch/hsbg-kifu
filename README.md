@@ -8,7 +8,7 @@ Hearthstone Battlegrounds の 1 ゲームごとの記録を、Hearthstone の Po
 また記録データは hsbg-kansousen 専用ではありません。下記に記載の JSON 仕様を確認ください。
 
 - 記録の形（ログの仕様）: [docs/log-schema.md](docs/log-schema.md)、[schema/game-log.schema.json](schema/game-log.schema.json)
-- 開発の手順（ソースからのビルド、コマンドライン）: [docs/development.md](docs/development.md)
+- 開発の手順（ソースからのビルド）: [docs/development.md](docs/development.md)
 - 調査: [docs/research.md](docs/research.md)
 - 設計: [docs/architecture.md](docs/architecture.md)
 - 配布とリリース: [docs/release.md](docs/release.md)

@@ -26,8 +26,17 @@ public static class Program
             case "verify-parse": return VerifyParse.Run(opts["slices"], opts["plugin"], opts.GetValueOrDefault("verbose") == "true");
             case "verify-json": return VerifyJson.Run(opts["slices"], opts["plugin"], opts.GetValueOrDefault("out"), int.Parse(opts.GetValueOrDefault("show") ?? "3"));
             default:
-                Console.Error.WriteLine("kifu-dev verify-parse --slices DIR|plugin --plugin DIR [--verbose true]");
-                Console.Error.WriteLine("kifu-dev verify-json  --slices DIR|plugin --plugin DIR [--out DIR] [--show N]");
+                Console.Error.WriteLine("""
+                    使い方（開発用の道具。配布しない）:
+                      kifu-dev verify-parse --slices DIR|plugin --plugin DIR [--verbose true]
+                          中継ログを PowerLogParser で読み、同じゲームのプラグインの記録（JSON）と比べる
+                      kifu-dev verify-json  --slices DIR|plugin --plugin DIR [--out DIR] [--show N]
+                          中継ログから記録を作り、同じゲームのプラグインの記録と比べる
+
+                      --slices  中継ログの .slices。plugin なら --plugin の power.log.gz を使う
+                      --plugin  hdt-plugin-hsbg-kansousen の記録のフォルダ
+                    出力にはカード ID と数字だけを出す（BattleTag は出さない）
+                    """);
                 return 2;
         }
     }
