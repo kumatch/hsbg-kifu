@@ -102,7 +102,7 @@ internal sealed class TrayContext : ApplicationContext
     private async Task ShowSettings()
     {
         var startupBefore = SafeStartupEnabled();
-        using var form = new SettingsForm(_config.Clone(), startupBefore);
+        using var form = new SettingsForm(_config.Clone(), startupBefore, PruneSlices);
         if (form.ShowDialog() != DialogResult.OK) return;
         if (form.StartWithWindows != startupBefore) SetStartup(form.StartWithWindows);
         if (!form.ConfigChanged) return; // サインイン時の起動だけ変えたときは、監視をやり直さない
@@ -119,6 +119,14 @@ internal sealed class TrayContext : ApplicationContext
         _log.Info("設定を変えたので、監視をやり直します");
         await StopService();
         StartService();
+    }
+
+    /// <summary>設定画面の「一時ログを整理する」: 監視が動いていればそこで、止まっていれば今の出力先で直接。</summary>
+    private Task<Capture.KifuWriterService.PruneResult> PruneSlices(bool dryRun)
+    {
+        if (_service is { } service) return service.PruneSlicesAsync(dryRun);
+        var outRoot = _config.ResolveOutputDir();
+        return Task.Run(() => KifuService.PruneSlices(outRoot, _log, dryRun));
     }
 
     private void SetStartup(bool enabled)

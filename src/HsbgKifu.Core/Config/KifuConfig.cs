@@ -25,7 +25,7 @@ public sealed class KifuConfig
     [JsonProperty("write_events_jsonl")]
     public bool WriteEventsJsonl { get; set; } = true;
 
-    /// <summary>記録の横に &lt;name&gt;.power.log.gz（GameState の行）を書く。中継ログ（.slices）は常に残る。</summary>
+    /// <summary>記録の横に &lt;name&gt;.power.log.gz（GameState の行）を書く。</summary>
     [JsonProperty("write_power_log")]
     public bool WritePowerLog { get; set; } = true;
 
@@ -36,6 +36,20 @@ public sealed class KifuConfig
     /// <summary>ゲームの後に、後の MMR が HDT の BgsLastGames.xml に入るまで待つ最長の秒数。</summary>
     [JsonProperty("mmr_after_wait_sec")]
     public int MmrAfterWaitSec { get; set; } = 60;
+
+    /// <summary>設定画面で選べる、中継ログを残す日数（ほかに「消さない」= null）。</summary>
+    public static readonly int[] SlicesRetentionChoices = { 30, 60, 90 };
+
+    /// <summary>
+    /// 中継ログ（.slices）を残す日数。ゲームが始まってからこの日数が過ぎ、記録の横に .power.log.gz ができていれば
+    /// （記録にならなかったゲームも）中継ログの .power.log.gz を消す。null（または 0 以下）なら消さない。
+    /// </summary>
+    [JsonProperty("slices_retention_days")]
+    public int? SlicesRetentionDays { get; set; } = 30;
+
+    /// <summary>中継ログを残す期間（消さないなら null）。</summary>
+    [JsonIgnore]
+    public TimeSpan? SlicesRetention => SlicesRetentionDays is int days && days > 0 ? TimeSpan.FromDays(days) : null;
 
     public string ResolveOutputDir() => Environment.ExpandEnvironmentVariables(OutputDir);
 

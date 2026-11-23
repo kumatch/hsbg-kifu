@@ -95,6 +95,8 @@ M1 で実装した（`src/HsbgKifu.Core/Watch/`）。
 
 ## 中継ログ
 
+- 利用者に見せる名前（設定画面・README・配布の README.txt・動作記録）は「一時ログ」（2026-11-23 にユーザーと決めた。ずっと残す必要が無いと分かるように）。
+  docs・TASKS・コードの名前とコメントでは「中継ログ」のまま
 - 置き場: `<出力先>\.slices\YYYY\MM\<yyyyMMdd-HHmmss>_<ゲーム番号>.power.log.gz` と `.slice.json`（付帯情報）。
   ゲーム番号が分からなければ `o<バイト位置>`、再接続なら末尾に `r`。`.slices` はドットで始まるので hsbg-kansousen は読まない
 - ゲームの見分け: ログフォルダ名 + CREATE_GAME の行の時刻（"HH:MM:SS.fffffff"）。ファイル名（Power.log / Power_old.log / .gz）にもバイト位置にも依らない
@@ -107,6 +109,18 @@ M1 で実装した（`src/HsbgKifu.Core/Watch/`）。
   記録アプリを止めたときの書きかけは recording のまま残り、次の起動で Power.log から書き直す
 - ゲーム番号と再接続: CREATE_GAME の時刻の直前 5 分以内（後ろへ 5 秒まで）の `GameNetLogger.log` の `GotoGameServe` 行。再接続の 2 つの中継ログをつなぐのは M4
 - `.slice.json` に BattleTag・接続先アドレス・spectateKey は入れない（`GameNetLog` は読み捨てる）
+- 記録との対応（format 2、0.4.0）: `KifuWriterService` が記録を作ったら、`.slice.json` に `outcome`（`recorded` / `duplicate` = 同じゲームの別の記録があった /
+  `not_recorded` = ターン 1 の前に終わった・BG 以外）と `record`（記録の出力先からの相対パス、拡張子なし）を書く。再接続でつないだ中継ログはどれも同じ記録。
+  起動時の記録の回収（`KifuWriterService.CatchUp`）は、`not_recorded` と、`record` の記録があるものをもう作らない
+- 整理（M9、0.4.0）: 消してよいのは、(a) 記録の横に `.power.log.gz` があるもの（`record` が無い前の版の中継ログは、同じ game_id の記録で見る）、
+  (b) `not_recorded` のもの。書いている途中のものと、始まってから 3 時間以内のもの（再接続でつなぐ範囲）は消さない。
+  消すのは `.power.log.gz` だけで、`.slice.json` に `pruned_at` を付けて残す（全部消すと、起動時の回収が Logs に残っているフォルダから切り出し直す）。
+  `SliceStore.IsDone` は整理済みを済みとし、`Finished`（記録の回収・作り直しが使う）には入れない。
+  記録づくりが読むのは `GameState.` の行だけで、記録の横の `.power.log.gz` にそろっている（それから作り直す機能は今は無い）
+- 整理が動くとき: 設定 `slices_retention_days`（30 / 60 / 90 / null = 消さない。既定 30）で、`KifuService` が起動時の回収の後（`KifuWatcher.CaughtUp`）と、
+  中継ログから記録を作った後に `KifuWriterService.Prune` を呼ぶ。期間はゲームの開始時刻から数え、過ぎた瞬間ではなく次のどちらかで消す。
+  設定画面の「中継ログを整理する」は期間に関係なく（`KifuService.PruneSlicesAsync`。動いている監視と同じ `KifuWriterService` の鍵で、記録の書き込みとぶつけない）。
+  消したときだけ動作記録に「中継ログを N 件整理しました（約 X MB）」と書く
 
 ## 持つものと書き出し
 

@@ -92,6 +92,9 @@ public sealed class KifuWatcher
 
     public SliceStore Store => _store;
 
+    /// <summary>起動時の回収（残っているログフォルダのうち、書いていないゲームの切り出し）が終わった。監視のスレッドから呼ばれる。</summary>
+    public event Action? CaughtUp;
+
     /// <summary>今追っているログフォルダ（無ければ null）。</summary>
     public string? CurrentSession => _session?.Name;
 
@@ -99,6 +102,7 @@ public sealed class KifuWatcher
     {
         _log.Info($"Power.log の監視を始めます: {_options.LogsDirectory}");
         CatchUp();
+        CaughtUp?.Invoke();
         while (!cancel.IsCancellationRequested)
         {
             try { Tick(); }

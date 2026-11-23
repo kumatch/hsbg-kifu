@@ -10,10 +10,18 @@ namespace HsbgKifu.Watch;
 /// </summary>
 public sealed class SliceMeta
 {
-    public const int CurrentFormat = 1;
+    /// <summary>2: 記録との対応（outcome / record）と整理済み（pruned_at）を足した（0.4.0）。</summary>
+    public const int CurrentFormat = 2;
     public const string StatusRecording = "recording";
     public const string StatusComplete = "complete";
     public const string StatusIncomplete = "incomplete";
+
+    /// <summary>記録を書いた（record がその記録）。</summary>
+    public const string OutcomeRecorded = "recorded";
+    /// <summary>同じゲームの別の記録（プラグインの記録など）があったので書かなかった（record がその記録）。</summary>
+    public const string OutcomeDuplicate = "duplicate";
+    /// <summary>記録にしないゲームだった（ターン 1 の前に終わった、BG 以外）。</summary>
+    public const string OutcomeNotRecorded = "not_recorded";
 
     [JsonPropertyName("format")] public int Format { get; set; } = CurrentFormat;
     /// <summary>ログフォルダ名（<c>Hearthstone_2026_11_15_12_33_42</c>）。</summary>
@@ -37,6 +45,12 @@ public sealed class SliceMeta
     [JsonPropertyName("client_complete")] public bool ClientComplete { get; set; }
     [JsonPropertyName("line_count")] public long LineCount { get; set; }
     [JsonPropertyName("kifu_version")] public string WrittenBy { get; set; } = global::HsbgKifu.Watch.KifuVersion.Current;
+    /// <summary>この中継ログから記録を作ったときの結果（<see cref="OutcomeRecorded"/> など）。まだ作っていない・作るのに失敗したなら null。</summary>
+    [JsonPropertyName("outcome")] public string? Outcome { get; set; }
+    /// <summary>このゲームの記録（出力先からの相対パス、拡張子なし、区切りは /）。recorded と duplicate のとき。</summary>
+    [JsonPropertyName("record")] public string? Record { get; set; }
+    /// <summary>整理した（.power.log.gz を消した）時刻。整理済みの中継ログは作り直しに使えないが、切り出し直さない。</summary>
+    [JsonPropertyName("pruned_at")] public DateTimeOffset? PrunedAt { get; set; }
 
     [JsonIgnore] public string Key => MakeKey(Session, CreateGameTime);
 
@@ -46,10 +60,13 @@ public sealed class SliceMeta
 /// <summary>
 /// 中継ログの置き場: <c>&lt;root&gt;\YYYY\MM\&lt;yyyyMMdd-HHmmss&gt;_&lt;ゲーム番号&gt;.power.log(.gz)</c> と <c>.slice.json</c>。
 /// 書いている間は平文で追記し（落ちても書いたところまで残る）、終わったら gzip にして平文を消す。
+/// 整理（<see cref="Prune"/>）では .power.log.gz だけを消し、.slice.json は残す（Hearthstone の Logs に残っているフォルダから切り出し直さないため）。
+/// 監視のスレッドと設定画面（整理のボタン）から呼ばれるので、置き場の一覧は鍵をかけて触る。
 /// </summary>
 public sealed class SliceStore
 {
     internal static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+    private readonly object _gate = new();
     private readonly Dictionary<string, (string MetaPath, SliceMeta Meta)> _index = new();
 
     public string Root { get; }
@@ -72,23 +89,88 @@ public sealed class SliceStore
         }
     }
 
-    public IEnumerable<SliceMeta> All => _index.Values.Select(v => v.Meta);
+    public IReadOnlyList<SliceMeta> All
+    {
+        get { lock (_gate) return _index.Values.Select(v => v.Meta).ToList(); }
+    }
 
     /// <summary>1 ゲーム分の中継ログを書き終えた（gzip にした）。引数は付帯情報と .power.log.gz のパス。記録の JSON を作るのに使う。</summary>
     public event Action<SliceMeta, string>? SliceFinished;
 
-    /// <summary>書き終えた中継ログ（付帯情報と .power.log.gz のパス）。作り直しのコマンドが使う。</summary>
-    public IEnumerable<(SliceMeta Meta, string Gz)> Finished =>
-        _index.Values.Where(v => v.Meta.Status != SliceMeta.StatusRecording)
-            .Select(v => (v.Meta, GzPath(v.MetaPath)))
-            .Where(x => File.Exists(x.Item2))
-            .OrderBy(x => x.Meta.StartTime);
+    /// <summary>書き終えた中継ログ（付帯情報と .power.log.gz のパス）。作り直しのコマンドが使う。整理済みのものは入らない。</summary>
+    public IReadOnlyList<(SliceMeta Meta, string Gz)> Finished
+    {
+        get
+        {
+            lock (_gate)
+                return _index.Values.Where(v => v.Meta.Status != SliceMeta.StatusRecording && v.Meta.PrunedAt == null)
+                    .Select(v => (v.Meta, GzPath(v.MetaPath)))
+                    .Where(x => File.Exists(x.Item2))
+                    .OrderBy(x => x.Meta.StartTime)
+                    .ToList();
+        }
+    }
 
-    /// <summary>書き終えた（gzip がある）ゲームなら true。書いている途中で止まったものは false（切り出し直す）。</summary>
-    public bool IsDone(string key) =>
-        _index.TryGetValue(key, out var e) && e.Meta.Status != SliceMeta.StatusRecording && File.Exists(GzPath(e.MetaPath));
+    /// <summary>
+    /// 書き終えた（gzip がある）か、整理済みのゲームなら true（切り出さない）。書いている途中で止まったものは false（切り出し直す）。
+    /// </summary>
+    public bool IsDone(string key)
+    {
+        lock (_gate)
+            return _index.TryGetValue(key, out var e) && e.Meta.Status != SliceMeta.StatusRecording
+                   && (e.Meta.PrunedAt != null || File.Exists(GzPath(e.MetaPath)));
+    }
+
+    /// <summary>付帯情報を書き直す（記録との対応を書いたとき）。この置き場に無い中継ログなら何もしない。</summary>
+    public void Update(SliceMeta meta)
+    {
+        lock (_gate)
+        {
+            if (!_index.TryGetValue(meta.Key, out var e)) return;
+            _index[meta.Key] = (e.MetaPath, meta);
+            WriteMeta(e.MetaPath, meta);
+        }
+    }
+
+    /// <summary>中継ログの .power.log.gz の大きさ（無ければ 0）。</summary>
+    public long GzLength(SliceMeta meta)
+    {
+        lock (_gate)
+        {
+            if (!_index.TryGetValue(meta.Key, out var e)) return 0;
+            var info = new FileInfo(GzPath(e.MetaPath));
+            return info.Exists ? info.Length : 0;
+        }
+    }
+
+    /// <summary>整理する: .power.log.gz を消し、付帯情報に整理済みの印を付ける。消せたら true。</summary>
+    public bool Prune(SliceMeta meta, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            if (!_index.TryGetValue(meta.Key, out var e) || e.Meta.Status == SliceMeta.StatusRecording) return false;
+            try
+            {
+                var gz = GzPath(e.MetaPath);
+                if (File.Exists(gz)) File.Delete(gz);
+                meta.PrunedAt = now;
+                _index[meta.Key] = (e.MetaPath, meta);
+                WriteMeta(e.MetaPath, meta);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+    }
 
     public SliceWriter Begin(SliceMeta meta)
+    {
+        lock (_gate) return BeginLocked(meta);
+    }
+
+    private SliceWriter BeginLocked(SliceMeta meta)
     {
         string basePath;
         if (_index.TryGetValue(meta.Key, out var old))
@@ -121,7 +203,7 @@ public sealed class SliceStore
         using (var zip = new GZipStream(output, CompressionLevel.Optimal))
             input.CopyTo(zip);
         File.Move(tmp, gz, overwrite: true);
-        WriteMeta(basePath + ".slice.json", meta);
+        lock (_gate) WriteMeta(basePath + ".slice.json", meta);
         File.Delete(plain);
         SliceFinished?.Invoke(meta, gz);
     }
@@ -130,11 +212,12 @@ public sealed class SliceStore
     {
         TryDelete(basePath + ".power.log");
         TryDelete(basePath + ".slice.json");
-        _index.Remove(meta.Key);
+        lock (_gate) _index.Remove(meta.Key);
     }
 
     internal static void WriteMeta(string path, SliceMeta meta)
     {
+        meta.Format = SliceMeta.CurrentFormat;
         var tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(meta, Json), new UTF8Encoding(false));
         File.Move(tmp, path, overwrite: true);

@@ -66,6 +66,8 @@ public static class Program
                     if (writer.Process(meta, gz) != null) done++;
                 }
                 log.Info($"{total} ゲームのうち {done} ゲームの記録を書きました（{sw.Elapsed.TotalSeconds:F1} 秒）。置き場: {outDir}");
+                var pruned = store.All.Count(m => m.PrunedAt != null);
+                if (pruned > 0) log.Info($"整理済みの一時ログ {pruned} 件は飛ばしました（.power.log.gz を消したので作り直せません）");
                 return 0;
             }
             default:
@@ -94,7 +96,8 @@ public static class Program
               hsbg-kifu slice --logs DIR [--out DIR]
                   終わったログフォルダ（Hearthstone の Logs、または backup-powerlogs.ps1 の退避先）をまとめて切り出す（記録は作らない）
               hsbg-kifu rebuild [--out DIR]
-                  中継ログ（<out>\.slices）から記録を作り直す。同じゲームの別の記録（プラグインの記録など）があれば書かない
+                  中継ログ（<out>\.slices）から記録を作り直す。同じゲームの別の記録（プラグインの記録など）があれば書かない。
+                  整理済みの中継ログ（.power.log.gz を消したもの）は飛ばす
 
               --out  出力先（既定: Documents\HSBG-Logs）。中継ログは <out>\.slices\、記録は <out>\YYYY\MM\ に書く
               --hs   Hearthstone のフォルダ（既定: HDT の config.xml の HearthstoneDirectory）

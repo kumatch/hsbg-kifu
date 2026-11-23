@@ -1,3 +1,4 @@
+using HsbgKifu.Capture;
 using HsbgKifu.Config;
 
 namespace HsbgKifu.App;
@@ -13,11 +14,18 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _hand = new() { Text = "ショップ終了時の手札を記録する", AutoSize = true };
     private readonly NumericUpDown _mmrWait = new() { Minimum = 0, Maximum = 600, Width = 80 };
     private readonly CheckBox _startup = new() { Text = "Windows へのサインイン時に起動する", AutoSize = true };
+    private readonly ComboBox _retention = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
+    private readonly List<int?> _retentionValues = new();
+    private readonly Func<bool, Task<KifuWriterService.PruneResult>> _prune;
     private readonly string _original;
 
-    public SettingsForm(KifuConfig config, bool startWithWindows)
+    /// <param name="config">今の設定（の写し）</param>
+    /// <param name="startWithWindows">サインイン時に起動するようになっているか</param>
+    /// <param name="prune">一時ログの整理（期間に関係なく）。引数が true なら消さずに件数と大きさだけ</param>
+    public SettingsForm(KifuConfig config, bool startWithWindows, Func<bool, Task<KifuWriterService.PruneResult>> prune)
     {
         _config = config;
+        _prune = prune;
         _original = Newtonsoft.Json.JsonConvert.SerializeObject(config);
         _startup.Checked = startWithWindows;
         Text = "hsbg-kifu の設定";
@@ -35,6 +43,11 @@ internal sealed class SettingsForm : Form
         _powerLog.Checked = config.WritePowerLog;
         _hand.Checked = config.SnapshotHand;
         _mmrWait.Value = Math.Clamp(config.MmrAfterWaitSec, 0, 600);
+        foreach (var days in KifuConfig.SlicesRetentionChoices) AddRetention(days, $"{days} 日");
+        AddRetention(null, "消さない");
+        var current = config.SlicesRetentionDays is int d && d > 0 ? d : (int?)null;
+        if (!_retentionValues.Contains(current)) AddRetention(current, $"{current} 日"); // config.json を手で書き換えた値
+        _retention.SelectedIndex = _retentionValues.IndexOf(current);
 
         var layout = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
         void Row(string label, Control control, params Control[] buttons)
@@ -48,6 +61,9 @@ internal sealed class SettingsForm : Form
         Row("記録の出力先", _outputDir, Button("参照...", (_, _) => Browse(_outputDir)), Button("既定に戻す", (_, _) => _outputDir.Text = OutputDirectory.Default));
         Row("Hearthstone のフォルダ", _hearthstoneDir, Button("参照...", (_, _) => Browse(_hearthstoneDir)));
         Row("後の MMR を待つ秒数", _mmrWait);
+        Button pruneButton = null!;
+        pruneButton = Button("一時ログを整理する...", async (_, _) => await PruneNow(pruneButton));
+        Row("一時ログを残す期間", _retention, pruneButton);
         foreach (var c in new Control[] { _events, _powerLog, _hand, _startup })
         {
             layout.Controls.Add(new Label());
@@ -56,7 +72,9 @@ internal sealed class SettingsForm : Form
         }
         var note = new Label
         {
-            Text = "中継ログ（記録の出力先の .slices）は常に残ります。MMR は HDT の BgsLastGames.xml から読みます（HDT と一緒に使ってください）。",
+            Text = "一時ログ（記録の出力先の .slices）は、記録の横に power.log.gz ができたゲームと記録にならなかったゲームの分を、残す期間を過ぎたら消します。" +
+                   "「一時ログを整理する」は期間に関係なく消します（始まってから 3 時間以内のゲームは残します）。消した一時ログからは記録を作り直せません。\n" +
+                   "MMR は HDT の BgsLastGames.xml から読みます（HDT と一緒に使ってください）。",
             AutoSize = true, MaximumSize = new Size(640, 0), Margin = new Padding(0, 10, 0, 0),
         };
         layout.Controls.Add(new Label());
@@ -91,6 +109,43 @@ internal sealed class SettingsForm : Form
 
     /// <summary>サインイン時の起動（レジストリに書くので config.json には入れない）。</summary>
     public bool StartWithWindows => _startup.Checked;
+
+    private void AddRetention(int? days, string label)
+    {
+        _retentionValues.Add(days);
+        _retention.Items.Add(label);
+    }
+
+    /// <summary>期間に関係なく一時ログを整理する: 件数と容量を見せて、確認してから消す。</summary>
+    private async Task PruneNow(Button button)
+    {
+        button.Enabled = false;
+        try
+        {
+            var plan = await _prune(true);
+            if (plan.Count == 0)
+            {
+                MessageBox.Show("整理できる一時ログはありません。\n記録の横に power.log.gz があるゲームと、記録にならなかったゲームの一時ログだけを消します（始まってから 3 時間以内のゲームは残します）。",
+                    "一時ログの整理", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var answer = MessageBox.Show(
+                $"一時ログ {plan.Count} 件（{KifuWriterService.FormatSize(plan.Bytes)}）を、期間に関係なく消します。\n" +
+                "記録の JSON と、記録の横の power.log.gz は残ります。消した一時ログからは記録を作り直せません。\n\n消してよいですか？",
+                "一時ログの整理", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return;
+            var done = await _prune(false);
+            MessageBox.Show($"一時ログ {done.Count} 件を整理しました（{KifuWriterService.FormatSize(done.Bytes)}）。", "一時ログの整理", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception e)
+        {
+            MessageBox.Show("一時ログを整理できませんでした: " + e.Message, "一時ログの整理", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            button.Enabled = true;
+        }
+    }
 
     private static Button Button(string text, EventHandler onClick)
     {
@@ -128,6 +183,7 @@ internal sealed class SettingsForm : Form
         _config.WritePowerLog = _powerLog.Checked;
         _config.SnapshotHand = _hand.Checked;
         _config.MmrAfterWaitSec = (int)_mmrWait.Value;
+        _config.SlicesRetentionDays = _retentionValues[_retention.SelectedIndex];
         DialogResult = DialogResult.OK;
         Close();
     }
