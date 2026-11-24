@@ -58,6 +58,8 @@ public sealed class GameRecorder : PowerGameListener
     private readonly LobbyMinionTypes _lobbyTypes = new();
     private bool _shopPhase;
     private int _currentTurn;
+    /// <summary>前に見たヒーローパワー（枠とカード）。変わったら hero_power_changed を書く（schema 1.12.0）。まだ見ていなければ null</summary>
+    private List<(string Slot, string? CardId)>? _heldHeroPowers;
 
     // 戦闘
     private bool _inCombat;
@@ -233,9 +235,14 @@ public sealed class GameRecorder : PowerGameListener
     {
         if (_openBlocks.Count == 0) return;
         // 操作のブロックが終わった時点のゴールド（プラグインの gold_after と同じく操作の後）
-        if (_openBlocks.Pop() is { } a && _active && _record != null)
-            Emit(a.Type, _currentTurn, F("card_id", a.CardId), F("name", _cards.FromCardId(a.CardId).Name), F("value", a.Type == ShopAction.Sell ? 1 : null),
-                F("gold_after", GoldRemaining(game.PlayerEntity)));
+        if (_openBlocks.Pop() is not { } a || !_active || _record == null) return;
+        var fields = new List<KeyValuePair<string, object?>>
+        {
+            F("card_id", a.CardId), F("name", _cards.FromCardId(a.CardId).Name), F("value", a.Type == ShopAction.Sell ? 1 : null),
+            F("gold_after", GoldRemaining(game.PlayerEntity)),
+        };
+        if (a.Type == ShopAction.HeroPower) fields.Add(F("source_card_id", a.SourceCardId)); // どちらのヒーローパワーを使ったか（schema 1.12.0）
+        Emit(a.Type, _currentTurn, fields.ToArray());
     }
 
     private static int? GoldRemaining(Entity? pe) =>
@@ -561,6 +568,9 @@ public sealed class GameRecorder : PowerGameListener
         var ents = Snapshots.SafeEntities(game);
         rec.BoardEndOfShop = Snapshots.Board(_cards, ents, me);
         rec.HandEndOfShop = _options.SnapshotHand ? Snapshots.Hand(_cards, ents, me) : null;
+        rec.HeroPowers = HeroPowers.Held(hero, HeroPowers.InPlay(ents, me))
+            .Select(h => ToHeroPowerRecord(h.Slot, h.Power))
+            .ToList();
 
         // 神祇: 戦闘に持ち込む値。相手の Sigil は戦闘ごとに複製されるので戦闘中に探す
         _shopEndMaxEntityId = ents.Count > 0 ? ents.Max(e => e.Id) : 0;
@@ -638,12 +648,15 @@ public sealed class GameRecorder : PowerGameListener
         var pe = game.PlayerEntity;
         var heroId = pe?.GetTag(GameTag.HERO_ENTITY) ?? 0;
         Entity? hero = null;
-        Entity? heroPower = null;
+        var heroPowers = new List<Entity>();
         foreach (var e in ents)
         {
             if (e.Id == heroId) hero = e;
-            else if (heroPower == null && e.IsHeroPower && e.IsInPlay && e.IsControlledBy(pid)) heroPower = e;
+            else if (e.IsHeroPower && e.IsInPlay && e.IsControlledBy(pid)) heroPowers.Add(e);
         }
+        var held = HeroPowers.Held(hero, heroPowers);
+        var heroPower = held.Count > 0 && held[0].Slot == HeroPowers.Main ? held[0].Power : null;
+        TrackHeroPowers(held);
         // 発見（悪夢の発見 / ヒーローパワー / トリプル報酬）の 3 択。選んでいる途中だけ
         var offered = game.PendingChoice is { } c && c.ChoiceType != "MULLIGAN" && c.EntityIds.Count > 0 ? c.EntityIds.ToList() : null;
 
@@ -678,6 +691,45 @@ public sealed class GameRecorder : PowerGameListener
                 .ToList();
             Emit(a.Type, _currentTurn, F("card_id", cardId), F("name", name), F("value", a.Value), F("gold_after", tick.GoldRemaining),
                 F("source", a.Source), F("offered", offeredCards));
+        }
+    }
+
+    private HeroPowerRecord ToHeroPowerRecord(string slot, Entity power)
+    {
+        var rec = new HeroPowerRecord { Slot = slot };
+        KifuCards.Fill(rec, _cards.FromCardId(KifuCards.LatestCardId(power)));
+        return rec;
+    }
+
+    /// <summary>
+    /// 持っているヒーローパワーが前に見たときから変わったら、枠ごとに hero_power_changed を書く（増えた・入れ替わった・なくなった。schema 1.12.0）。
+    /// 最初に見たヒーローパワーは書かない（player.hero_power にある）。カードで比べるので、再接続で Entity が作り直されても書かない。
+    /// ヒーローパワーがトリンケットやクエストに変わってなくなる（マリンなど。CHANGE_ENTITY）と、card_id が null の行になる
+    /// </summary>
+    private void TrackHeroPowers(List<(string Slot, Entity Power)> held)
+    {
+        var now = held.Select(h => (h.Slot, CardId: KifuCards.LatestCardId(h.Power))).ToList();
+        var before = _heldHeroPowers;
+        if (before == null)
+        {
+            // 最初に見たときの基準。メインが見えるまで待つ（ヒーローパワーが作られる前のまとまり）
+            if (held.Count > 0 && held[0].Slot == HeroPowers.Main) _heldHeroPowers = now;
+            return;
+        }
+        _heldHeroPowers = now;
+        if (_currentTurn <= 0) return;
+        foreach (var slot in new[] { HeroPowers.Main, HeroPowers.Additional })
+        {
+            var a = before.Where(h => h.Slot == slot).Select(h => h.CardId).ToList();
+            var b = now.Where(h => h.Slot == slot).Select(h => h.CardId).ToList();
+            for (var i = 0; i < Math.Max(a.Count, b.Count); i++)
+            {
+                var previous = i < a.Count ? a[i] : null;
+                var current = i < b.Count ? b[i] : null;
+                if (previous == current) continue;
+                Emit("hero_power_changed", _currentTurn, F("slot", slot), F("card_id", current), F("name", _cards.FromCardId(current).Name),
+                    F("previous_card_id", previous));
+            }
         }
     }
 
@@ -938,8 +990,9 @@ public sealed class GameRecorder : PowerGameListener
         }
         if (log.Player.HeroPower.IsEmpty)
         {
-            var me = game.LocalPlayerId ?? 0;
-            var hp = game.Entities.Values.FirstOrDefault(x => x.IsHeroPower && x.IsInPlay && x.IsControlledBy(me));
+            // メイン（HERO_POWER_ENTITY）。ヒーローパワーが 2 つあっても取り違えない
+            var held = HeroPowers.Held(hero, HeroPowers.InPlay(game.Entities.Values, game.LocalPlayerId ?? 0));
+            var hp = held.Count > 0 && held[0].Slot == HeroPowers.Main ? held[0].Power : null;
             var hpCard = hp?.OriginalCardId ?? hp?.CardId;
             if (hpCard != null) KifuCards.Fill(log.Player.HeroPower, _cards.FromCardId(hpCard));
         }

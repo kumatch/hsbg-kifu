@@ -277,10 +277,20 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
   - events.jsonl: `hero_power` の行に `source_card_id`（使ったヒーローパワー）を足す（`card_id` は 1.10.x 以前に「発見したカード」の意味で使っていたので使わない）。
     増えた・入れ替わったときに `hero_power_changed`（slot, card_id, 前の card_id）
   - メインのヒーローパワーは「PLAY にある最初の自分のヒーローパワー」ではなく `HERO_POWER_ENTITY` から引く（`GameRecorder` の 2 か所）
-- [ ] 実装（schema 1.12.0。CLAUDE.md「ログの形を変えたとき」の手順で hsbg-kansousen にも反映）
-- [ ] テスト: `TestLogs` で組み立てる。ゲンの流れ（1 回目が追加の枠、2 回目がメインと入れ替わる）、テロンの力の流れ（追加の枠だけ）、
-      2 つのうちどちらを使ったか、ヒーローパワーが 1 つのゲームでは今までと同じ値
-- [ ] 実データ: 10/11 00:17 のゲン、11/02 14:26 のミロクーのゲームで作り直して確かめる。`verify-parse --slices plugin` で違いが増えないこと
+- [x] 実装（schema 1.12.0）: `Capture/HeroPowers`（メインと追加の枠を読む）、`turns[].hero_powers[]`（`Model/TurnRecord` の `HeroPowerRecord`）、
+      events.jsonl の `hero_power_changed` と `hero_power` の `source_card_id`、`player.hero_power` と `Snapshots.Tick` に渡すメインを `HERO_POWER_ENTITY` から。
+      ヒーローパワーがトリンケット・クエストに変わってなくなったとき（マリンなど）も `hero_power_changed`（card_id が null）を書く。
+      `HERO_POWER_ENTITY` の無いログ（2026-09 のゲーム）は PLAY のヒーローパワーから決める
+- [x] テスト（`GameRecorderTests` の 5 件、合計 200 件）: ゲンの流れ（1 回目が追加の枠、2 回目がメインと入れ替わる）、テロンの力の流れ（追加の枠だけ）、
+      どちらを使ったか（`source_card_id`）、スキーマに合格、ヒーローパワーが 1 つのゲーム（`HERO_POWER_ENTITY` の有無）、トリンケットに変わってなくなる
+- [x] 実データ（2026-11-25。プラグインの power.log.gz 257 ゲームを作り直した。出力はスクラッチ、終わって消した）:
+      ゲンは T4 に追加の枠 `BG20_HERO_280p5` → メインが `TB_BaconShop_HP_020` に入れ替わり、使ったのは 3 回とも `TB_BaconShop_HP_020`。
+      ミロクーは T5 に追加の枠 `BG25_HERO_103p`。`hero_power_changed` は 583 行（グエン 317、インゲ 114、ゲイルウィング 57 など毎ターン変わるヒーロー）。
+      なくなる行はマリン・ボタンズ・`BG24_HERO_100p` のヒーローだけで、一瞬見えなくなるような余計な行は無い。2 つ持っていたターンは 19（バロフが効果で得た 1 回を含む）。
+      `verify-json` のプラグインとの違いは変更前と同じ 80,257 件、新しいキー以外の記録と events.jsonl は 257 ゲームすべてで変更前と同じ
+- [x] hsbg-kansousen（ブランチ `kumatch/pre-timewarp-support`）: schema と docs のコピー、`KNOWN_SCHEMA_VERSION` 1.12.0、`turns` の列（`CACHE_FORMAT` 15）、
+      要約の「## Hero powers」、選択肢の「Hero power (X)」の判定、log-caveats、テスト
+- [ ] 実機確認（人間に依頼。M11 と一緒に）
 
 ### M11. 時渡り（Timewarp）の買い物を記録する（2026-11-25 の要望。37.2 = 2026-12-01 から）
 - 背景: 37.2 で時渡りが戻る（6 ターン目にミノール、9 ターン目にメジャー。クロナムで特別なカードを買う）。トリンケットはなくなるが、`trinkets` が空になるだけで形は変えない。
@@ -292,7 +302,8 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
     （ミロクーの記録は `hero_power` から変わる。前の版で記録したのは 1 ゲームだけ）
   - events.jsonl: 時渡りの選択では `discover` を出さず、`timewarp_buy`（card_id, name, cost, chronum_after）。始まりに `timewarp`（kind, chronum, offered[]）
   - 2 つ目のヒーローパワー（「○○の力」）は M10 の `turns[].hero_powers[]` に出る
-- [ ] ミロクーのゲームで確かめた範囲の実装（schema は M10 と別に上げる。M10 と一緒にリリースするなら 1.12.0 にまとめる）。`kind` の決め方は 37.2 のゲームで確かめてから
+- [ ] ミロクーのゲームで確かめた範囲の実装（schema は M10 と同じ 1.12.0。2026-11-25 にユーザーと決めた: M10 と M11 は一緒にリリースする）。
+      `kind` の決め方は 37.2 のゲームで確かめてから
 - [ ] テスト: `TestLogs` でミロクーの流れ（5 枚 → 買える候補だけの 2 回目 → クロナム 0 で終わる）。通常のショップの記録（`gold_available`・`buys`・`shop_offers`）に混ざらないこと
 - [ ] 37.2 のゲームで確かめる（docs/research.md §7 の時渡りの項目）。違っていれば直し、docs/research.md §3.5 に追記する
 

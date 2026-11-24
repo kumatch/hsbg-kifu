@@ -384,6 +384,141 @@ public class GameRecorderTests
         Assert.DoesNotContain(r.EventLines, l => l.Contains("\"type\":\"discover\""));
     }
 
+    /// <summary>
+    /// 自分のヒーロー（Entity 100）にヒーローパワー Entity 120（<paramref name="cardId"/>、PLAY）を持たせる。<paramref name="withHeroPowerEntity"/> なら
+    /// ヒーローの HERO_POWER_ENTITY も付ける（2026-09 のログには無い）。
+    /// </summary>
+    private static List<string> SetupWithHeroPower(string cardId = "BG35_HERO_001p", bool withHeroPowerEntity = true)
+    {
+        var lines = Setup();
+        var at = lines.FindIndex(l => l.Contains("tag=STATE value=RUNNING"));
+        var add = new List<string>
+        {
+            P("10:00:01.0000000", $"FULL_ENTITY - Creating ID=120 CardID={cardId}"),
+            P("10:00:01.0000000", "    tag=CARDTYPE value=HERO_POWER"),
+            P("10:00:01.0000000", "    tag=CONTROLLER value=2"),
+            P("10:00:01.0000000", "    tag=ZONE value=PLAY"),
+        };
+        if (withHeroPowerEntity) add.Add(P("10:00:01.0000000", "TAG_CHANGE Entity=100 tag=HERO_POWER_ENTITY value=120 "));
+        lines.InsertRange(at, add);
+        return lines;
+    }
+
+    /// <summary>
+    /// ターン 1 のショップで、ヒーローパワーが増える（Entity 701、ADDITIONAL_HERO_POWER_INDEX=1、ヒーローの ADDITIONAL_HERO_POWER_ENTITY_1）。
+    /// <paramref name="replaceMain"/> なら次のまとまりでメインも入れ替わる（Entity 702。元のメイン 120 は SETASIDE、ヒーローの HERO_POWER_ENTITY が 702）。
+    /// その後、使う型のヒーローパワー（<paramref name="usedId"/>）を使う。
+    /// ウォーゲンの王ゲン（2026-10-11 00:17 のゲーム）と時渡りの「テロンの力」（2026-11-02 14:26）と同じ並び（docs/research.md §3.6）。
+    /// </summary>
+    private static List<string> SecondHeroPowerTurn(bool replaceMain, int usedId)
+    {
+        var lines = OneTurn();
+        var at = lines.FindIndex(l => l.Contains("tag=TURN value=2")) - 1;
+        var add = new List<string>
+        {
+            PL("10:01:25.0000000"),
+            P("10:01:25.0000000", "FULL_ENTITY - Creating ID=701 CardID=BG20_HERO_280p5"),
+            P("10:01:25.0000000", "    tag=CARDTYPE value=HERO_POWER"),
+            P("10:01:25.0000000", "    tag=CONTROLLER value=2"),
+            P("10:01:25.0000000", "    tag=ZONE value=PLAY"),
+            P("10:01:25.0000000", "    tag=ADDITIONAL_HERO_POWER_INDEX value=1"),
+            P("10:01:25.0000000", "TAG_CHANGE Entity=100 tag=ADDITIONAL_HERO_POWER_ENTITY_1 value=701 "),
+        };
+        if (replaceMain)
+        {
+            add.AddRange(new[]
+            {
+                PL("10:01:26.0000000"),
+                P("10:01:26.0000000", "FULL_ENTITY - Creating ID=702 CardID=TB_BaconShop_HP_020"),
+                P("10:01:26.0000000", "    tag=CARDTYPE value=HERO_POWER"),
+                P("10:01:26.0000000", "    tag=CONTROLLER value=2"),
+                P("10:01:26.0000000", "    tag=ZONE value=PLAY"),
+                P("10:01:26.0000000", "TAG_CHANGE Entity=120 tag=ZONE value=SETASIDE "),
+                P("10:01:26.0000000", "TAG_CHANGE Entity=100 tag=HERO_POWER_ENTITY value=702 "),
+            });
+        }
+        add.AddRange(new[]
+        {
+            PL("10:01:27.0000000"),
+            P("10:01:27.0000000", $"BLOCK_START BlockType=PLAY Entity=[entityName=x id={usedId} zone=PLAY zonePos=0 cardId=x player=2] EffectCardId=System.Collections.Generic.List`1[System.String] EffectIndex=0 Target=0 SubOption=-1 "),
+            P("10:01:27.0000000", $"    TAG_CHANGE Entity={usedId} tag=EXHAUSTED value=1 "),
+            P("10:01:27.0000000", "BLOCK_END"),
+        });
+        lines.InsertRange(at, add);
+        return lines;
+    }
+
+    [Theory]
+    [InlineData(true)]  // ウォーゲンの王ゲン: 1 回目が追加の枠、2 回目がメインと入れ替わる
+    [InlineData(false)] // 時渡りの「○○の力」: 追加の枠だけ
+    public async Task RecordsTheSecondHeroPower(bool replaceMain)
+    {
+        var used = replaceMain ? 702 : 120;
+        var r = Run(SetupWithHeroPower().Concat(SecondHeroPowerTurn(replaceMain, used)).Concat(End()));
+        var log = r.Record!;
+        Assert.Equal("BG35_HERO_001p", log.Player.HeroPower.CardId); // 最初のヒーローパワーのまま
+
+        var held = log.Turns.Single(t => t.Turn == 1).HeroPowers;
+        var main = replaceMain ? "TB_BaconShop_HP_020" : "BG35_HERO_001p";
+        Assert.Equal(new[] { ("main", main), ("additional", "BG20_HERO_280p5") }, held.Select(h => (h.Slot, h.CardId!)));
+
+        var events = r.EventLines.Select(JObject.Parse).ToList();
+        var changes = events.Where(e => (string?)e["type"] == "hero_power_changed").ToList();
+        Assert.Equal(replaceMain ? 2 : 1, changes.Count);
+        Assert.Equal("additional", (string?)changes[0]["slot"]);
+        Assert.Equal("BG20_HERO_280p5", (string?)changes[0]["card_id"]);
+        Assert.Null((string?)changes[0]["previous_card_id"]);
+        Assert.Equal(1, (int?)changes[0]["turn"]);
+        if (replaceMain)
+        {
+            Assert.Equal("main", (string?)changes[1]["slot"]);
+            Assert.Equal("TB_BaconShop_HP_020", (string?)changes[1]["card_id"]);
+            Assert.Equal("BG35_HERO_001p", (string?)changes[1]["previous_card_id"]);
+        }
+
+        // どちらのヒーローパワーを使ったか
+        var use = events.Single(e => (string?)e["type"] == "hero_power");
+        Assert.Equal(replaceMain ? "TB_BaconShop_HP_020" : "BG35_HERO_001p", (string?)use["source_card_id"]);
+        Assert.Equal(1, log.Turns.Single(t => t.Turn == 1).Actions!.HeroPowerUses);
+
+        var schema = await NJsonSchema.JsonSchema.FromJsonAsync(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "game-log.schema.json")));
+        var errors = schema.Validate(HsbgKifu.Output.GameLogWriter.Serialize(log)).Select(e => $"{e.Path}: {e.Kind}").ToArray();
+        Assert.True(errors.Length == 0, string.Join("\n", errors));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)] // HERO_POWER_ENTITY の無いログ（2026-09 のゲーム）: PLAY のヒーローパワーから決める
+    public void RecordsOneHeroPowerWithoutChanges(bool withHeroPowerEntity)
+    {
+        var r = Run(SetupWithHeroPower("TB_BaconShop_HP_035", withHeroPowerEntity).Concat(OneTurn()).Concat(End()));
+        Assert.Equal("TB_BaconShop_HP_035", r.Record!.Player.HeroPower.CardId);
+        var held = Assert.Single(r.Record.Turns.Single(t => t.Turn == 1).HeroPowers);
+        Assert.Equal(("main", "TB_BaconShop_HP_035"), (held.Slot, held.CardId!));
+        Assert.DoesNotContain(r.EventLines, l => l.Contains("\"type\":\"hero_power_changed\""));
+    }
+
+    [Fact]
+    public void RecordsAHeroPowerThatTurnsIntoATrinket()
+    {
+        // マリンのヒーローパワーは、トリンケットに変わってなくなる（CHANGE_ENTITY。2026-09-26 19:39 のゲームの T5）
+        var lines = OneTurn();
+        var at = lines.FindIndex(l => l.Contains("tag=TURN value=2")) - 1;
+        lines.InsertRange(at, new[]
+        {
+            PL("10:01:25.0000000"),
+            P("10:01:25.0000000", "CHANGE_ENTITY - Updating Entity=[entityName=x id=120 zone=PLAY zonePos=0 cardId=BG30_HERO_304p player=2] CardID=BG30_MagicItem_423"),
+            P("10:01:25.0000000", "    tag=CARDTYPE value=BATTLEGROUND_TRINKET"),
+        });
+        var r = Run(SetupWithHeroPower("BG30_HERO_304p").Concat(lines).Concat(End()));
+        Assert.Equal("BG30_HERO_304p", r.Record!.Player.HeroPower.CardId);
+        Assert.Empty(r.Record.Turns.Single(t => t.Turn == 1).HeroPowers);
+        var change = Assert.Single(r.EventLines.Select(JObject.Parse), e => (string?)e["type"] == "hero_power_changed");
+        Assert.Equal("main", (string?)change["slot"]);
+        Assert.Null((string?)change["card_id"]);
+        Assert.Equal("BG30_HERO_304p", (string?)change["previous_card_id"]);
+    }
+
     [Fact]
     public async Task RecordWithoutMmrAndLobbyTypesIsValidAgainstTheSchema()
     {

@@ -22,6 +22,8 @@ namespace HsbgKifu.Model
         public List<ShopOffer> ShopOffers { get; set; } = new List<ShopOffer>();
         /// <summary>このターンに出た選択肢（発見・トリンケットの選択など）と選んだもの。出た順。無ければ空。schema 1.11.0 で追加</summary>
         public List<ChoiceRecord> Choices { get; set; } = new List<ChoiceRecord>();
+        /// <summary>ショップ終了時に持っていたヒーローパワー（メインが先、追加の枠が後）。見られなければ空。schema 1.12.0 で追加</summary>
+        public List<HeroPowerRecord> HeroPowers { get; set; } = new List<HeroPowerRecord>();
         /// <summary>ショップ開始時の他プレイヤーのティアと HP。取れなければ null。schema 1.5.0 で追加</summary>
         public List<LobbyEntry>? Lobby { get; set; }
         /// <summary>自分の神祇（Secret Deity の Sigil）。神祇の無いシーズンや取れなければ null。schema 1.2.0 で追加</summary>
@@ -41,6 +43,15 @@ namespace HsbgKifu.Model
         /// <summary>血の宝石の雨: 酒場を入れ替えた後に酒場のミニオン 1 体ずつに与える血の宝石の量。無ければ null。schema 1.9.0 で追加</summary>
         public BuffStatsRecord? BloodGemBarrage { get; set; }
         public CombatRecord? Combat { get; set; }
+    }
+
+    /// <summary>
+    /// 持っているヒーローパワー 1 つ。ヒーローの HERO_POWER_ENTITY（メイン）と ADDITIONAL_HERO_POWER_ENTITY_1（追加の枠）から読む。schema 1.12.0 で追加
+    /// </summary>
+    public sealed class HeroPowerRecord : CardRef
+    {
+        /// <summary>"main"（メイン）| "additional"（追加の枠。ウォーゲンの王ゲン、時渡りの「○○の力」など）</summary>
+        public string Slot { get; set; } = "";
     }
 
     /// <summary>

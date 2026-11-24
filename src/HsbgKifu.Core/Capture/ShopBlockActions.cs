@@ -12,7 +12,8 @@ namespace HsbgKifu.Capture;
 /// </summary>
 internal sealed class ShopBlockActions
 {
-    public sealed record Action(string Type, string? CardId);
+    /// <param name="SourceCardId">ヒーローパワーなら使ったヒーローパワー（events.jsonl の source_card_id。schema 1.12.0）</param>
+    public sealed record Action(string Type, string? CardId, string? SourceCardId = null);
 
     public int Buys { get; private set; }
     public int Sells { get; private set; }
@@ -52,8 +53,9 @@ internal sealed class ShopBlockActions
         {
             // EXHAUSTED の変化から数えると、1 ターンに何度も使える・使っても EXHAUSTED にならないヒーローパワーで外れる（236 ゲームで 113 ターン）
             HeroPowerUses++;
-            // card_id は書かない（プラグインと同じ。発見したカードは後のまとまりで手札に来るので、ShopActionTracker が discover として書く）
-            return new Action(ShopAction.HeroPower, null);
+            // card_id は書かない（プラグインと同じ。発見したカードは後のまとまりで手札に来るので、ShopActionTracker が discover として書く）。
+            // 使ったヒーローパワーは source_card_id（ヒーローパワーが 2 つあるとき、どちらを使ったか。schema 1.12.0）
+            return new Action(ShopAction.HeroPower, null, KifuCards.LatestCardId(source));
         }
         if (source.IsSpell || source.IsBattlegroundsSpell)
         {

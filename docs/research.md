@@ -257,6 +257,13 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
   どちらが追加の枠でどちらがメインかは分からない。`actions.hero_power_uses` は 2 つの合計で正しい（PLAY ブロックから数える）が、
   events.jsonl の `hero_power` は `card_id: null` でどちらを使ったか分からない。
   記録のメインのヒーローパワーは「PLAY にある自分のヒーローパワーで最初に見つかったもの」（`GameRecorder` の `Snapshots.Tick` に渡す値と `player.hero_power`）なので、2 つあると取り違えうる
+- M10（schema 1.12.0）で分かったこと（保存済み 257 ゲーム）:
+  - 2026-09 のゲーム（9/26 など）は、自分のヒーローに `HERO_POWER_ENTITY` が無い（相手のヒーローにはある）。そのときは PLAY のヒーローパワーから決める
+  - ヒーローパワーがトリンケットやクエストに変わる: マリン（`BG30_HERO_304p` → `CHANGE_ENTITY` で `BG30_MagicItem_423`、CARDTYPE が BATTLEGROUND_TRINKET）、
+    ボタンズ（`BG32_HERO_002p`）、Whodunit?（`BG24_HERO_100p`）。それからは自分のヒーローパワーが PLAY に無い
+  - メインのカードが変わるヒーロー: サンウェル・グエン（`BG20_HERO_202p`。毎ターン選んだヒーローパワーになって戻る。1 ターンに 2 回ほど）、
+    ウォーソング・インゲ（`BG26_HERO_102p` ↔ `p2`）、ゲイルウィング（`BG20_HERO_283p` ↔ `_t1` / `_t3` の行き先）、`BG28_HERO_400p` ↔ `p2` など
+  - バロフのゲームで、効果で追加の枠に `TB_BaconShop_HP_082`（Everbloom）が入ったことが 1 回ある
 
 ## 4. HDT に頼っていた値（確認済み）
 
