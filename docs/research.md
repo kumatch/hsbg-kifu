@@ -220,6 +220,44 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
   ヒーローパワー 65、カード 135、トリンケット 58。0.2.1 で書いていた `discover` の行はすべて残った。悪夢の発見は選択肢 86 回に対し `dark_gift` の行 82（手札の差から書くので、
   選んだカードがすぐ手札から消えたものは行が無い。`turns[].choices[]` にはある）
 
+### 3.5 時渡り（Timewarp）の買い物（2026-11-25、ミロクーのゲームで確認。TASKS の M11）
+
+- 背景: 時渡りは 34.2（2025-12）に入り、37.2（2026-12-01）で戻る仕組み。6 ターン目にミノール、9 ターン目にメジャーの「時渡りの酒場」に行き、
+  クロナム（Chronum）で特別なカードを買う。37.2 ではトリンケットがなくなる。ヒーローパワーで別のターンに行くヒーローもいる:
+  ミロクー（Morchie、`BG34_HERO_004p` Warped Conflux「5 ターン目にミノール時渡り」）、ムロゾンド（`BG34_HERO_000p` Alternate Timeline「8 ターン目にメジャー時渡り」）
+- 保存済みの 272 ゲームで時渡りがあったのは 2026-11-02 14:26 のミロクーのゲームだけ（`BACON_ALT_TAVERN_IN_PROGRESS value=1` で検索）。以下はそのゲームの 5 ターン目
+- 始まり: 5 ターン目の `MAIN_START_TRIGGERS`、ヒーローパワーの TRIGGER ブロックの中（通常の酒場が並ぶ前）。
+  `GameEntity` の `BACON_ALT_TAVERN_IN_PROGRESS=1` と名前のないタグ 4526 = 1、自分の `RESOURCES` を 0 → 2、`BACON_ALT_TAVERN_COIN=2`（クロナム）、`MAXHANDSIZE=99`。
+  ヒーローパワーの `TAG_SCRIPT_DATA_NUM_1` は 1 ターン目から 4 → 3 → 2 → 1 と残りのターン数を表していた
+- 候補の 5 枚: ミニオン 3（`BG34_Giant_*`、`TECH_LEVEL` 3）、呪文 1（`BG34_Treasure_607`）、2 つ目のヒーローパワーになる呪文 1（`BG34_HeroPowerSpell_009` Power of Teron、
+  「買うと発動」）。どれも `BACON_TIMEWARPED=1`・`IS_A_SHOP_CHOICE_CARD=1`・`CREATOR` は自分のヒーローパワーで、SETASIDE に作られる。
+  **値段は `BACON_OVERRIDE_BG_COST`**（2・2・1・1・1）。全部に `CARD_ALTERNATE_COST=5`（クロナムで払う印と思われる）
+- 買い方: 普通の選択肢（`DebugPrintEntityChoices`、`ChoiceType=GENERAL`、`CountMin=1 CountMax=1`、`Source=` は自分のヒーローパワー）。
+  1 枚選ぶと `RESOURCES_USED` が増え、**残りのクロナムで買える候補だけで次の選択肢が出る**（1 回目 5 枚 → テロンの力、2 回目は 1 クロナムの 2 枚 → 時渡の訓練生）。
+  クロナムが 0 になると `BACON_ALT_TAVERN_IN_PROGRESS=0`、`MAXHANDSIZE=10`、`RESOURCES` は通常の 7 に戻る。4526 は少し後で 0
+- 買ったもの: 呪文は手札に入り、後で普通に使われた。テロンの力はすぐ 2 つ目のヒーローパワーを作った（§3.6）。買わなかった候補は戦闘の開始時に REMOVEDFROMGAME
+- 0.4.0 の記録: `turns[].choices[]` に 2 件（`source: "hero_power"`）と events.jsonl の `discover` 2 行。`discover` の `gold_after`（2・1）はクロナムで、しかも払う前の値。
+  通常のショップの記録（`gold_available` 7、`buys` 2、`shop_offers`）には混ざらず正しい。クロナムの額・値段・ミノールかメジャーかは残らない
+- このゲームに出てこなかったタグ（37.2 で全員が行く時渡りでは出ると思われる）: `BACON_ALT_TAVERN_SYSTEM_ACTIVE`、`BACON_TURNS_UNTIL_ALT_TAVERN`、
+  `BACON_TIMES_VISITED_ALT_TAVERN`、`BACON_ALT_TAVERN_COIN_USED`、`BACON_BLACK_MARKET_EXTRA_CHRONUM`（§7）
+
+### 3.6 2 つ目のヒーローパワー（2026-11-25、ゲンとミロクーのゲームで確認。TASKS の M10）
+
+- ウォーゲンの王ゲン（`BG35_HERO_001`、ヒーローパワー `BG35_HERO_001p` King of Duality「4 ターン目にヒーローパワーを 2 つ発見して、これと入れ替える」）の
+  2026-10-11 00:17 のゲーム（2026-09-25 17:41 のゲームは記録の JSON だけで Power.log の写しが無い）
+  1. 4 ターン目、`Source=` が `BG35_HERO_001p` の 3 択。選んだもの（`BG20_HERO_280p5`）は **`ADDITIONAL_HERO_POWER_INDEX=1`** の新しい Entity として PLAY に作られ、
+     ヒーローに **`ADDITIONAL_HERO_POWER_ENTITY_1`**（その Entity の番号）が付く
+  2. 続く 2 回目の 3 択で選んだもの（`TB_BaconShop_HP_020`）は **メインと入れ替わる**: 新しい Entity が PLAY に作られ、ヒーローの `HERO_POWER_ENTITY` と
+     `HERO_POWER`（dbf_id）が変わり、元の `BG35_HERO_001p` は SETASIDE へ
+  3. 以後は 2 つを持ったまま。使うたびに `BlockType=PLAY` が出るのは使う型のヒーローパワーだけ（4・6・7 ターン目）。
+     常に効く型（`BG20_HERO_280p5`）は効果が出るたびに TRIGGER ブロックが出るだけ
+- 時渡りのテロンの力（§3.5）も同じく、`BG25_HERO_103p` を `ADDITIONAL_HERO_POWER_INDEX=1` で PLAY に作り、ヒーローに `ADDITIONAL_HERO_POWER_ENTITY_1`。メインは変わらない
+- 戦闘中のヒーローの写しにも `ADDITIONAL_HERO_POWER_ENTITY_1` が付く（ゲンのゲームの 00:29:33、ミロクーのゲームの 14:45:50）。誰のものかは未確認（§7）
+- 0.4.0 の記録: `player.hero_power` は最初のヒーローパワーのまま。手に入れたものは `choices[]`（`hero_power`）の候補と選んだものからしか分からず、
+  どちらが追加の枠でどちらがメインかは分からない。`actions.hero_power_uses` は 2 つの合計で正しい（PLAY ブロックから数える）が、
+  events.jsonl の `hero_power` は `card_id: null` でどちらを使ったか分からない。
+  記録のメインのヒーローパワーは「PLAY にある自分のヒーローパワーで最初に見つかったもの」（`GameRecorder` の `Snapshots.Tick` に渡す値と `player.hero_power`）なので、2 つあると取り違えうる
+
 ## 4. HDT に頼っていた値（確認済み）
 
 | 値 | プラグインの取り方 | HDT なしで |
@@ -278,3 +316,7 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
 - `BgsLastGames.xml` に MMR が入るまでの時間。11/30 以降も書かれ続けるか
 - 自分の発見の選択肢が取れるか（記録するかは別に決める）
 - WPF 常駐アプリにしたときのメモリ
+- 時渡り（§3.5。37.2 のゲームで確かめる）: 全員が行く 6・9 ターン目の選択肢の `Source=` は何か。ミノールとメジャーの見分け方（タグ 4526 がメジャーで 2 になるか、
+  候補の `TECH_LEVEL` がミノール 3・メジャー 5 か）。§3.5 の末尾のタグの動き。買わずに抜けられるか。前の時渡りからのクロナムの持ち越しがどう出るか。
+  選択肢が通常のショップの検出（買う・使う・ショップの並び）より前に収まるか
+- 2 つ目のヒーローパワー（§3.6）: 追加の枠が 2 つ以上になること（`ADDITIONAL_HERO_POWER_ENTITY_2`）があるか。相手のヒーローパワーが見えるか
