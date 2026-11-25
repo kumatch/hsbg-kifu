@@ -78,6 +78,18 @@ public sealed class GameRecorder : PowerGameListener
     private bool _iceBlockMine, _iceBlockOpponent;
     /// <summary>出たがまだ選ばれていない選択肢（DebugPrintEntityChoices の id → 記録とターン）</summary>
     private readonly Dictionary<int, (ChoiceRecord Record, int Turn)> _openChoices = new();
+    /// <summary>今いる時渡りの酒場（最初の選択肢から BACON_ALT_TAVERN_IN_PROGRESS が 0 になるまで）。schema 1.12.0</summary>
+    private TimewarpVisit? _timewarp;
+
+    private sealed class TimewarpVisit(TimewarpRecord record, int turn, List<int> offeredIds, int? chronum)
+    {
+        public TimewarpRecord Record { get; } = record;
+        public int Turn { get; } = turn;
+        /// <summary>候補の Entity（最初の選択肢の並び。bought[].index はこの添字）</summary>
+        public List<int> OfferedIds { get; } = offeredIds;
+        /// <summary>残りのクロナム（持っていた分から買ったものの値段を引いた値。選んだ時点では RESOURCES_USED がまだ増えていない）</summary>
+        public int? Remaining { get; set; } = chronum;
+    }
 
     // 神祇と「この対戦中」の強化（戦闘中は区切りごとに読み、戦闘の確定時に書く）
     private readonly DeityTracker _deity = new();
@@ -179,6 +191,12 @@ public sealed class GameRecorder : PowerGameListener
         rec.ChosenIndex = index >= 0 ? index : null;
         if (rec.Source == ChoiceSource.DarkGift) return; // events.jsonl には dark_gift の行がある（手札に入ったカードから。actions.dark_gifts と同じ数え方）
         var chosen = rec.ChosenIndex is { } i ? rec.Offered[i] : null;
+        if (rec.Source == ChoiceSource.Timewarp)
+        {
+            // 時渡りの買い物は discover ではなく timewarp_buy の行（schema 1.12.0）
+            RecordTimewarpBuy(game, choice, chosenId, chosen, turn);
+            return;
+        }
         EmitAt(choice.ChosenTime ?? game.LastTime, "discover", turn, F("card_id", chosen?.CardId), F("name", chosen?.Name),
             F("gold_after", GoldRemaining(game.PlayerEntity)), F("source", rec.Source), F("source_card_id", rec.SourceCard.CardId),
             F("offered", rec.Offered.Select(c => c.CardId).ToList()));
@@ -193,14 +211,105 @@ public sealed class GameRecorder : PowerGameListener
         if (_record == null || _currentTurn <= 0 || choice.EntityIds.Count == 0) return;
         var offered = choice.EntityIds.Select(id => game.Entities.TryGetValue(id, out var e) ? e : null).ToList();
         Entity? source = choice.SourceId is { } sid && game.Entities.TryGetValue(sid, out var s) ? s : null;
+        var timewarp = ChoiceSource.InTimewarp(game);
         var rec = new ChoiceRecord
         {
-            Source = ChoiceSource.Of(source, offered, game.LocalPlayerId ?? 0, game.Entities),
+            Source = timewarp ? ChoiceSource.Timewarp : ChoiceSource.Of(source, offered, game.LocalPlayerId ?? 0, game.Entities),
             Offered = offered.Select(e => e != null ? _cards.ToSnapshot(e) : new CardSnapshot()).ToList(),
         };
         if (source != null) KifuCards.Fill(rec.SourceCard, _cards.FromCardId(KifuCards.LatestCardId(source)));
         GetOrAddTurn(_currentTurn).Choices.Add(rec);
         _openChoices[choice.Id] = (rec, _currentTurn);
+        if (timewarp && _timewarp == null) StartTimewarp(game, choice, source, offered);
+    }
+
+    // ------------------------------------------------------------------ 時渡り（docs/research.md §3.5）
+
+    /// <summary>
+    /// 時渡りの酒場の最初の選択肢: 候補（5 枚）・クロナム・連れて行ったヒーローパワーを記録する。
+    /// 選ぶたびに、残りのクロナムで買える候補だけで次の選択肢が出る（2 回目以降は候補を記録し直さない）
+    /// </summary>
+    private void StartTimewarp(PowerGame game, EntityChoice choice, Entity? source, List<Entity?> offered)
+    {
+        var pe = game.PlayerEntity;
+        int? chronum = null;
+        if (pe != null && pe.GetTag(GameTag.BACON_ALT_TAVERN_COIN) > 0) chronum = pe.GetTag(GameTag.BACON_ALT_TAVERN_COIN);
+        else if (pe != null && pe.HasTag(GameTag.RESOURCES)) chronum = pe.GetTag(GameTag.RESOURCES) - pe.GetTag(GameTag.RESOURCES_USED);
+        var me = game.LocalPlayerId ?? 0;
+        var rec = new TimewarpRecord
+        {
+            Kind = TimewarpKind(offered),
+            Chronum = chronum,
+            Offered = offered.Select(e => e != null ? ToTimewarpOffer(e) : new TimewarpOffer()).ToList(),
+        };
+        if (source != null && source.IsHeroPower && source.IsControlledBy(me))
+        {
+            rec.SourceCard = new CardRef();
+            KifuCards.Fill(rec.SourceCard, _cards.FromCardId(KifuCards.LatestCardId(source)));
+        }
+        var turn = GetOrAddTurn(_currentTurn);
+        if (turn.Timewarp != null) Note($"turn {_currentTurn}: a second Timewarp visit in the same turn; only the last one is kept");
+        turn.Timewarp = rec;
+        _timewarp = new TimewarpVisit(rec, _currentTurn, choice.EntityIds.ToList(), chronum);
+        EmitAt(choice.Time, "timewarp", _currentTurn, F("kind", rec.Kind), F("chronum", rec.Chronum), F("source_card_id", rec.SourceCard?.CardId),
+            F("offered", rec.Offered.Select(o => o.CardId).ToList()), F("costs", rec.Offered.Select(o => o.Cost).ToList()));
+    }
+
+    /// <summary>
+    /// ミノールは候補のティアが 3、メジャーは 5（34.2 のパッチノート。37.2 は要検証）。ミニオンのティアの最大で決め、ミニオンが無ければ全部で決める
+    /// </summary>
+    internal static string? TimewarpKind(IEnumerable<Entity?> offered)
+    {
+        var cards = offered.OfType<Entity>().ToList();
+        var tiers = cards.Where(e => e.IsMinion).Select(e => e.GetTag(GameTag.TECH_LEVEL)).Where(t => t > 0).ToList();
+        if (tiers.Count == 0) tiers = cards.Select(e => e.GetTag(GameTag.TECH_LEVEL)).Where(t => t > 0).ToList();
+        if (tiers.Count == 0) return null;
+        return tiers.Max() >= 5 ? "major" : "minor";
+    }
+
+    /// <summary>払うクロナム: BACON_OVERRIDE_BG_COST（0 もあり得るので、タグがあればその値）。無ければ COST</summary>
+    private static int? TimewarpCost(Entity e) =>
+        e.Tags.TryGetValue((int)GameTag.BACON_OVERRIDE_BG_COST, out var cost) ? cost
+        : e.Tags.TryGetValue((int)GameTag.COST, out var c) ? c : null;
+
+    private TimewarpOffer ToTimewarpOffer(Entity e)
+    {
+        var s = _cards.ToSnapshot(e);
+        return new TimewarpOffer
+        {
+            CardId = s.CardId, Name = s.Name, DbfId = s.DbfId, CardType = s.CardType, Tier = s.Tier,
+            Attack = s.Attack, Health = s.Health, Golden = s.Golden, Cost = TimewarpCost(e),
+        };
+    }
+
+    private void RecordTimewarpBuy(PowerGame game, EntityChoice choice, int chosenId, CardSnapshot? chosen, int turn)
+    {
+        var entity = chosenId > 0 && game.Entities.TryGetValue(chosenId, out var e) ? e : null;
+        var cost = entity != null ? TimewarpCost(entity) : null;
+        int? index = null;
+        int? after = null;
+        if (_timewarp != null && _timewarp.Turn == turn)
+        {
+            var i = _timewarp.OfferedIds.IndexOf(chosenId);
+            index = i >= 0 ? i : null;
+            _timewarp.Remaining = _timewarp.Remaining is { } left && cost is { } c ? left - c : null;
+            after = _timewarp.Remaining;
+            _timewarp.Record.Bought.Add(new TimewarpBuy { Index = index, Cost = cost });
+        }
+        EmitAt(choice.ChosenTime ?? game.LastTime, "timewarp_buy", turn, F("card_id", chosen?.CardId), F("name", chosen?.Name), F("index", index),
+            F("cost", cost), F("chronum_after", after));
+    }
+
+    /// <summary>時渡りの酒場を出た（BACON_ALT_TAVERN_IN_PROGRESS が 0 に。その直後に RESOURCES が通常のゴールドに戻る）。</summary>
+    private void EndTimewarp(PowerGame game)
+    {
+        if (_timewarp == null) return;
+        var pe = game.PlayerEntity;
+        if (pe != null && pe.GetTag(GameTag.BACON_ALT_TAVERN_COIN_USED) > 0)
+            _timewarp.Record.ChronumLeft = pe.GetTag(GameTag.BACON_ALT_TAVERN_COIN) - pe.GetTag(GameTag.BACON_ALT_TAVERN_COIN_USED);
+        else if (pe != null && pe.HasTag(GameTag.RESOURCES))
+            _timewarp.Record.ChronumLeft = pe.GetTag(GameTag.RESOURCES) - pe.GetTag(GameTag.RESOURCES_USED);
+        _timewarp = null;
     }
 
     public override void OnBatchEnd(PowerGame game, bool packetEnd)
@@ -298,6 +407,11 @@ public sealed class GameRecorder : PowerGameListener
     /// </summary>
     public override void OnTagChanged(PowerGame game, Entity entity, int tag, int previous, int value, TagChangeKind kind)
     {
+        if (_active && tag == (int)GameTag.BACON_ALT_TAVERN_IN_PROGRESS && value == 0 && previous > 0 && entity == game.GameEntity)
+        {
+            EndTimewarp(game);
+            return;
+        }
         if (!_active || tag != (int)GameTag.ZONE || value != (int)Zone.GRAVEYARD || kind != TagChangeKind.TagChange) return;
         if (entity.CardId != IceBlockCardId && entity.OriginalCardId != IceBlockCardId) return;
         if (game.LocalPlayerId is not { } local) return;
@@ -409,6 +523,7 @@ public sealed class GameRecorder : PowerGameListener
         _opponentBoardRecheckAt = null;
         ClearCombatEvents();
         _openChoices.Clear(); // 落ちる前に出た選択肢は、選んだかどうか分からない（chosen_index は null のまま）
+        _timewarp = null; // 時渡りの途中で落ちたなら、使い残したクロナムは分からない（chronum_left は null のまま）
         _tracker.Reset();
         _deity.Reset();
         _playerSigil = null;

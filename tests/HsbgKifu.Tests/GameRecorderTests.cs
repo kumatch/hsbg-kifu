@@ -519,6 +519,117 @@ public class GameRecorderTests
         Assert.Equal("BG30_HERO_304p", (string?)change["previous_card_id"]);
     }
 
+    /// <summary>
+    /// ターン 1 の始まりに、ヒーローパワー（Entity 120）で時渡りの酒場に行く。クロナム 2、候補 3 枚（801: ミニオン 1 クロナム、802: ミニオン 2 クロナム、
+    /// 803: 呪文 1 クロナム。ミニオンのティアは <paramref name="tier"/>）。801 を買うと、残り 1 クロナムで買える 803 だけの選択肢が出て、803 を買って終わる。
+    /// 時渡りの間は RESOURCES がクロナムで、終わると通常のゴールド（3）に戻る。2026-11-02 14:26 のミロクーのゲームの T5 と同じ並び（docs/research.md §3.5）。
+    /// </summary>
+    private static List<string> TimewarpTurn(int tier)
+    {
+        var lines = OneTurn();
+        var at = lines.FindIndex(l => l.Contains("CardID=BG31_815")); // ターン 1 の酒場が並ぶ前
+        var add = new List<string>
+        {
+            P("10:01:00.0000000", "TAG_CHANGE Entity=GameEntity tag=BACON_ALT_TAVERN_IN_PROGRESS value=1 "),
+            P("10:01:00.0000000", "TAG_CHANGE Entity=Me tag=RESOURCES value=0 "),
+            P("10:01:00.0000000", "TAG_CHANGE Entity=Me tag=RESOURCES value=2 "),
+            P("10:01:00.0000000", "TAG_CHANGE Entity=Me tag=BACON_ALT_TAVERN_COIN value=2 "),
+        };
+        foreach (var (id, card, type, cost) in new[] { (801, "BG34_Giant_580", "MINION", 1), (802, "BG34_Giant_582", "MINION", 2), (803, "BG34_Treasure_607", "BATTLEGROUND_SPELL", 1) })
+        {
+            add.Add(P("10:01:00.0000000", $"FULL_ENTITY - Creating ID={id} CardID={card}"));
+            add.Add(P("10:01:00.0000000", $"    tag=CARDTYPE value={type}"));
+            add.Add(P("10:01:00.0000000", "    tag=CONTROLLER value=2"));
+            add.Add(P("10:01:00.0000000", "    tag=ZONE value=SETASIDE"));
+            add.Add(P("10:01:00.0000000", $"    tag=TECH_LEVEL value={(type == "MINION" ? tier : 3)}"));
+            add.Add(P("10:01:00.0000000", $"    tag=COST value={cost}"));
+            add.Add(P("10:01:00.0000000", "    tag=CREATOR value=120"));
+            add.Add(P("10:01:00.0000000", "    tag=BACON_TIMEWARPED value=1"));
+            add.Add(P("10:01:00.0000000", $"TAG_CHANGE Entity={id} tag=BACON_OVERRIDE_BG_COST value={cost} "));
+            add.Add(P("10:01:00.0000000", $"TAG_CHANGE Entity={id} tag=IS_A_SHOP_CHOICE_CARD value=1 "));
+        }
+        add.AddRange(new[]
+        {
+            "D 10:01:00.1000000 GameState.DebugPrintEntityChoices() - id=30 Player=Me TaskList=10050 ChoiceType=GENERAL CountMin=1 CountMax=1",
+            "D 10:01:00.1000000 GameState.DebugPrintEntityChoices() -   Source=[entityName=x id=120 zone=PLAY zonePos=0 cardId=BG34_HERO_004p player=2]",
+            "D 10:01:00.1000000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=x id=801 zone=SETASIDE zonePos=0 cardId=BG34_Giant_580 player=2]",
+            "D 10:01:00.1000000 GameState.DebugPrintEntityChoices() -   Entities[1]=[entityName=x id=802 zone=SETASIDE zonePos=0 cardId=BG34_Giant_582 player=2]",
+            "D 10:01:00.1000000 GameState.DebugPrintEntityChoices() -   Entities[2]=[entityName=x id=803 zone=SETASIDE zonePos=0 cardId=BG34_Treasure_607 player=2]",
+            "D 10:01:02.0000000 GameState.DebugPrintEntitiesChosen() - id=30 Player=Me EntitiesCount=1",
+            "D 10:01:02.0000000 GameState.DebugPrintEntitiesChosen() -   Entities[0]=[entityName=x id=801 zone=SETASIDE zonePos=0 cardId=BG34_Giant_580 player=2]",
+            PL("10:01:02.1000000"),
+            P("10:01:02.1000000", "TAG_CHANGE Entity=801 tag=ZONE value=HAND "),
+            P("10:01:02.1000000", "TAG_CHANGE Entity=Me tag=RESOURCES_USED value=1 "),
+            "D 10:01:02.2000000 GameState.DebugPrintEntityChoices() - id=31 Player=Me TaskList=10051 ChoiceType=GENERAL CountMin=1 CountMax=1",
+            "D 10:01:02.2000000 GameState.DebugPrintEntityChoices() -   Source=[entityName=x id=120 zone=PLAY zonePos=0 cardId=BG34_HERO_004p player=2]",
+            "D 10:01:02.2000000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=x id=803 zone=SETASIDE zonePos=0 cardId=BG34_Treasure_607 player=2]",
+            "D 10:01:03.0000000 GameState.DebugPrintEntitiesChosen() - id=31 Player=Me EntitiesCount=1",
+            "D 10:01:03.0000000 GameState.DebugPrintEntitiesChosen() -   Entities[0]=[entityName=x id=803 zone=SETASIDE zonePos=0 cardId=BG34_Treasure_607 player=2]",
+            PL("10:01:03.1000000"),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=803 tag=ZONE value=HAND "),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=Me tag=RESOURCES_USED value=2 "),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=GameEntity tag=BACON_ALT_TAVERN_IN_PROGRESS value=0 "),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=Me tag=RESOURCES value=0 "),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=Me tag=RESOURCES_USED value=0 "),
+            P("10:01:03.1000000", "TAG_CHANGE Entity=Me tag=RESOURCES value=3 "),
+        });
+        lines.InsertRange(at, add);
+        return lines;
+    }
+
+    [Theory]
+    [InlineData(3, "minor")]
+    [InlineData(5, "major")]
+    public async Task RecordsATimewarpVisit(int tier, string kind)
+    {
+        var r = Run(SetupWithHeroPower("BG34_HERO_004p").Concat(TimewarpTurn(tier)).Concat(End()));
+        var log = r.Record!;
+        var t1 = log.Turns.Single(t => t.Turn == 1);
+        var tw = t1.Timewarp!;
+        Assert.Equal(kind, tw.Kind);
+        Assert.Equal("BG34_HERO_004p", tw.SourceCard!.CardId);
+        Assert.Equal(2, tw.Chronum);
+        Assert.Equal(new[] { "BG34_Giant_580", "BG34_Giant_582", "BG34_Treasure_607" }, tw.Offered.Select(o => o.CardId));
+        Assert.Equal(new int?[] { 1, 2, 1 }, tw.Offered.Select(o => o.Cost));
+        Assert.Equal("spell", tw.Offered[2].CardType);
+        Assert.Equal(new[] { (0, 1), (2, 1) }, tw.Bought.Select(b => (b.Index!.Value, b.Cost!.Value)));
+        Assert.Equal(0, tw.ChronumLeft);
+
+        // 選択肢は 2 回とも timewarp（2 回目は買える候補だけ）
+        Assert.Equal(new[] { "timewarp", "timewarp" }, t1.Choices.Select(c => c.Source));
+        Assert.Equal(new[] { 3, 1 }, t1.Choices.Select(c => c.Offered.Count));
+
+        // 通常の酒場の記録には混ざらない（クロナムの増減を売却やゴールド獲得と数えない）
+        Assert.Equal(1, t1.Actions!.Buys);
+        Assert.Equal(0, t1.Actions.Sells);
+        Assert.Equal(0, t1.Actions.GoldGained ?? 0);
+        Assert.Equal(3, t1.Actions.GoldSpent);
+        Assert.Equal(3, t1.GoldAvailable);
+
+        var events = r.EventLines.Select(JObject.Parse).ToList();
+        Assert.DoesNotContain(events, e => (string?)e["type"] == "discover");
+        var visit = events.Single(e => (string?)e["type"] == "timewarp");
+        Assert.Equal(kind, (string?)visit["kind"]);
+        Assert.Equal(2, (int?)visit["chronum"]);
+        Assert.Equal(new[] { 1, 2, 1 }, visit["costs"]!.Select(x => (int)x));
+        var buys = events.Where(e => (string?)e["type"] == "timewarp_buy").ToList();
+        Assert.Equal(new[] { "BG34_Giant_580", "BG34_Treasure_607" }, buys.Select(e => (string?)e["card_id"]));
+        Assert.Equal(new[] { 1, 0 }, buys.Select(e => (int)e["chronum_after"]!));
+        Assert.Equal(new[] { 0, 2 }, buys.Select(e => (int)e["index"]!));
+
+        var schema = await NJsonSchema.JsonSchema.FromJsonAsync(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "game-log.schema.json")));
+        var errors = schema.Validate(HsbgKifu.Output.GameLogWriter.Serialize(log)).Select(e => $"{e.Path}: {e.Kind}").ToArray();
+        Assert.True(errors.Length == 0, string.Join("\n", errors));
+    }
+
+    [Fact]
+    public void ATurnWithoutTimewarpHasNoTimewarpRecord()
+    {
+        var r = Run(SetupWithHeroPower().Concat(OneTurn()).Concat(End()));
+        Assert.All(r.Record!.Turns, t => Assert.Null(t.Timewarp));
+        Assert.DoesNotContain(r.EventLines, l => l.Contains("\"type\":\"timewarp"));
+    }
+
     [Fact]
     public async Task RecordWithoutMmrAndLobbyTypesIsValidAgainstTheSchema()
     {

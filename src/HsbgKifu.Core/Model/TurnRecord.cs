@@ -24,6 +24,8 @@ namespace HsbgKifu.Model
         public List<ChoiceRecord> Choices { get; set; } = new List<ChoiceRecord>();
         /// <summary>ショップ終了時に持っていたヒーローパワー（メインが先、追加の枠が後）。見られなければ空。schema 1.12.0 で追加</summary>
         public List<HeroPowerRecord> HeroPowers { get; set; } = new List<HeroPowerRecord>();
+        /// <summary>このターンに行った時渡りの酒場（候補・クロナム・買ったもの）。行かなければ null。schema 1.12.0 で追加</summary>
+        public TimewarpRecord? Timewarp { get; set; }
         /// <summary>ショップ開始時の他プレイヤーのティアと HP。取れなければ null。schema 1.5.0 で追加</summary>
         public List<LobbyEntry>? Lobby { get; set; }
         /// <summary>自分の神祇（Secret Deity の Sigil）。神祇の無いシーズンや取れなければ null。schema 1.2.0 で追加</summary>
@@ -52,6 +54,41 @@ namespace HsbgKifu.Model
     {
         /// <summary>"main"（メイン）| "additional"（追加の枠。ウォーゲンの王ゲン、時渡りの「○○の力」など）</summary>
         public string Slot { get; set; } = "";
+    }
+
+    /// <summary>
+    /// 時渡り（Timewarp）の酒場に 1 回行った記録。GameEntity の BACON_ALT_TAVERN_IN_PROGRESS が 1 の間に出た選択肢から作る
+    /// （docs/research.md §3.5）。schema 1.12.0 で追加
+    /// </summary>
+    public sealed class TimewarpRecord
+    {
+        /// <summary>"minor" | "major"。候補のティアから決める（ミノールは 3、メジャーは 5）。決められなければ null</summary>
+        public string? Kind { get; set; }
+        /// <summary>時渡りに連れて行ったヒーローパワー（ミロクー・ムロゾンドなど）。自分のヒーローパワーでなければ null</summary>
+        public CardRef? SourceCard { get; set; }
+        /// <summary>持っていたクロナム（自分の BACON_ALT_TAVERN_COIN）。取れなければ null</summary>
+        public int? Chronum { get; set; }
+        /// <summary>候補（最初の選択肢。画面に出た順）。cost は払うクロナム</summary>
+        public List<TimewarpOffer> Offered { get; set; } = new List<TimewarpOffer>();
+        /// <summary>買ったもの（買った順）</summary>
+        public List<TimewarpBuy> Bought { get; set; } = new List<TimewarpBuy>();
+        /// <summary>使い残したクロナム（時渡りが終わったときの RESOURCES - RESOURCES_USED）。終わりを見られなければ null</summary>
+        public int? ChronumLeft { get; set; }
+    }
+
+    /// <summary>時渡りの候補 1 枚。schema 1.12.0 で追加</summary>
+    public sealed class TimewarpOffer : CardSnapshot
+    {
+        /// <summary>払うクロナム（BACON_OVERRIDE_BG_COST。無ければ COST）</summary>
+        public int? Cost { get; set; }
+    }
+
+    /// <summary>時渡りで買ったもの 1 つ。schema 1.12.0 で追加</summary>
+    public sealed class TimewarpBuy
+    {
+        /// <summary>offered の添字（0 始まり）。候補に無いものを買ったなら null</summary>
+        public int? Index { get; set; }
+        public int? Cost { get; set; }
     }
 
     /// <summary>

@@ -18,6 +18,11 @@ public static class ChoiceSource
     public const string Trinket = "trinket";
     /// <summary>それ以外のカード（ミニオンの雄叫び、呪文、トリンケットの効果など。出したものは source_card）</summary>
     public const string Card = "card";
+    /// <summary>時渡りの酒場での買い物（GameEntity の BACON_ALT_TAVERN_IN_PROGRESS が 1 の間の選択肢。出したものは問わない。schema 1.12.0）</summary>
+    public const string Timewarp = "timewarp";
+
+    /// <summary>時渡りの酒場の中か（docs/research.md §3.5）。</summary>
+    public static bool InTimewarp(PowerGame game) => game.GameEntity?.GetTag(GameTag.BACON_ALT_TAVERN_IN_PROGRESS) > 0;
 
     /// <param name="entities">今の Entity（出したものの作成元を引く）</param>
     public static string Of(Entity? source, IReadOnlyList<Entity?> offered, int localPlayerId, IReadOnlyDictionary<int, Entity> entities)

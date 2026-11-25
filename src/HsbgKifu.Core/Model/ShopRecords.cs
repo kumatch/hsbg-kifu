@@ -6,7 +6,7 @@ namespace HsbgKifu.Model
     /// 手札やショップに見えたカード 1 枚。ミニオンは攻撃力・体力・金色も持つ（手札のミニオンは強化されていることがある）。
     /// schema 1.5.0 で追加（1.4.x 以前の hand_end_of_shop は card_id / name / dbf_id だけ）
     /// </summary>
-    public sealed class CardSnapshot : CardRef
+    public class CardSnapshot : CardRef
     {
         /// <summary>"minion" | "spell" | "other"</summary>
         public string? CardType { get; set; }

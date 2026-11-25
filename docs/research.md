@@ -240,6 +240,11 @@ HDT のイベントは HDT が Power.log から作っている。プラグイン
   通常のショップの記録（`gold_available` 7、`buys` 2、`shop_offers`）には混ざらず正しい。クロナムの額・値段・ミノールかメジャーかは残らない
 - このゲームに出てこなかったタグ（37.2 で全員が行く時渡りでは出ると思われる）: `BACON_ALT_TAVERN_SYSTEM_ACTIVE`、`BACON_TURNS_UNTIL_ALT_TAVERN`、
   `BACON_TIMES_VISITED_ALT_TAVERN`、`BACON_ALT_TAVERN_COIN_USED`、`BACON_BLACK_MARKET_EXTRA_CHRONUM`（§7）
+- M11（schema 1.12.0）の記録の作り方: 時渡りの中か（`choices[].source` = `timewarp`）は `BACON_ALT_TAVERN_IN_PROGRESS` で決め、出したもの（`Source=`）には頼らない
+  （37.2 の全員が行く時渡りで何が出すかはまだ分からない）。時渡りの記録は最初の選択肢で始める（`BACON_ALT_TAVERN_IN_PROGRESS=1` の時点では
+  `BACON_ALT_TAVERN_COIN` がまだ付いていない。同じブロックの少し後で付く）。終わりは `BACON_ALT_TAVERN_IN_PROGRESS` が 0 になったとき
+  （その時点の `RESOURCES - RESOURCES_USED` が使い残し。直後に `RESOURCES` が通常のゴールドに戻る）。
+  時渡りの間の `RESOURCES` の増減（0 → 2 → 使う → 0 → 7）は、ショップの行動の推定（売却・ゴールド獲得）に混ざらなかった（ミロクーのゲームとテスト）
 
 ### 3.6 2 つ目のヒーローパワー（2026-11-25、ゲンとミロクーのゲームで確認。TASKS の M10）
 

@@ -302,9 +302,19 @@ M3 で記録の JSON を作れるようになってから。記録の形が変�
     （ミロクーの記録は `hero_power` から変わる。前の版で記録したのは 1 ゲームだけ）
   - events.jsonl: 時渡りの選択では `discover` を出さず、`timewarp_buy`（card_id, name, cost, chronum_after）。始まりに `timewarp`（kind, chronum, offered[]）
   - 2 つ目のヒーローパワー（「○○の力」）は M10 の `turns[].hero_powers[]` に出る
-- [ ] ミロクーのゲームで確かめた範囲の実装（schema は M10 と同じ 1.12.0。2026-11-25 にユーザーと決めた: M10 と M11 は一緒にリリースする）。
-      `kind` の決め方は 37.2 のゲームで確かめてから
-- [ ] テスト: `TestLogs` でミロクーの流れ（5 枚 → 買える候補だけの 2 回目 → クロナム 0 で終わる）。通常のショップの記録（`gold_available`・`buys`・`shop_offers`）に混ざらないこと
+- [x] ミロクーのゲームで確かめた範囲の実装（schema は M10 と同じ 1.12.0。2026-11-25 にユーザーと決めた: M10 と M11 は一緒にリリースする）:
+      `turns[].timewarp`（`Model/TurnRecord` の `TimewarpRecord` / `TimewarpOffer` / `TimewarpBuy`。`CardSnapshot` は継承できるようにした）、
+      `choices[].source` の `timewarp`（`ChoiceSource.InTimewarp`）、events.jsonl の `timewarp` / `timewarp_buy`（時渡りの選択では `discover` を書かない）。
+      時渡りは最初の選択肢で始め（クロナム = `BACON_ALT_TAVERN_COIN`。そのころには付いている）、`BACON_ALT_TAVERN_IN_PROGRESS` が 0 になったときの
+      `RESOURCES - RESOURCES_USED` を使い残しにする。`chronum_after` は持っていた分から値段を引いて出す（選んだ時点では `RESOURCES_USED` がまだ増えていない）。
+      `kind` は候補のミニオンのティアの最大（5 以上ならメジャー）。37.2 のゲームで確かめるまでは目安
+- [x] テスト（`GameRecorderTests` の 3 件、合計 203 件）: ミロクーの流れ（3 枚 → 買える候補だけの 2 回目 → クロナム 0 で終わる。ティア 3 でミノール、5 でメジャー）、
+      通常のショップの記録（`gold_available`・`gold_spent`・`buys`・`sells`・`gold_gained`）に混ざらない、`discover` を書かない、スキーマに合格、時渡りの無いターン
+- [x] 実データ（2026-11-26。257 ゲームを作り直し、M10 の版と比べた。出力はスクラッチ、終わって消した）: ミロクーの T5 は kind `minor`、クロナム 2、
+      候補 5 枚の値段 2・2・1・1・1、買ったのはテロンの力（index 4）→ 時渡の訓練生（index 3）、使い残し 0。変わったのはこのゲームだけ
+      （選択肢 2 件の source と、`discover` 2 行が `timewarp` 1 行と `timewarp_buy` 2 行に）。ほかの 256 ゲームは記録も events.jsonl も同じ
+- [x] hsbg-kansousen: schema と docs のコピー、`timewarp_offers` の表（`CACHE_FORMAT` 16）、要約の「## Timewarp」、選択肢の kind `buy`、log-caveats
+- [ ] 実機確認（人間に依頼。M10 と一緒に。37.2 の時渡りのゲームで）
 - [ ] 37.2 のゲームで確かめる（docs/research.md §7 の時渡りの項目）。違っていれば直し、docs/research.md §3.5 に追記する
 
 ## 判明したこと・決めたこと
